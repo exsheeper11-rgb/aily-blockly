@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectorRef, Component, ElementRef, ViewChild, viewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, ElementRef, isDevMode, ViewChild, viewChild } from '@angular/core';
 import { HEADER_BTNS, HEADER_MENU } from '../../../configs/menu.config';
 import { NzToolTipModule } from 'ng-zorro-antd/tooltip';
 import { FormsModule } from '@angular/forms';
@@ -12,18 +12,45 @@ import { PortItem, SerialService } from '../../../services/serial.service';
 import { ActBtnComponent } from '../act-btn/act-btn.component';
 import { IMenuItem } from '../../../configs/menu.config';
 import { NzMessageService } from 'ng-zorro-antd/message';
+import { NzModalService } from 'ng-zorro-antd/modal';
+import { UnsaveDialogComponent } from '../unsave-dialog/unsave-dialog.component';
+import { TranslateModule, TranslateService } from '@ngx-translate/core';
+import { UpdateService } from '../../../services/update.service';
+import { Router } from '@angular/router';
+import { ElectronService } from '../../../services/electron.service';
+import { ConfigService } from '../../../services/config.service';
+import { AuthService } from '../../../services/auth.service';
+import { BoardSelectorDialogComponent } from '../board-selector-dialog/board-selector-dialog.component';
+import { LoginDialogComponent } from '../login-dialog/login-dialog.component';
+import { PlatformService } from '../../../services/platform.service';
+// import { AppStoreService } from '../../../tools/app-store/app-store.service';
+import { AppItem } from '../../../tools/app-store/app-store.config';
+import { APP_LIST } from '../../../configs/tool.config';
 
 @Component({
   selector: 'app-header',
-  imports: [CommonModule, FormsModule, NzToolTipModule, MenuComponent, ActBtnComponent],
+  imports: [
+    CommonModule,
+    NzToolTipModule,
+    MenuComponent,
+    ActBtnComponent,
+    TranslateModule
+  ],
   templateUrl: './header.component.html',
   styleUrl: './header.component.scss',
 })
 export class HeaderComponent {
   headerBtns = HEADER_BTNS;
   headerMenu = HEADER_MENU;
+  headerApps = APP_LIST;
 
-  // @ViewChild('menuBox') menuBox: ElementRef;
+  get isMac() {
+    return this.platformService.isMac();
+  }
+
+  get isWindowFullScreen() {
+    return this.electronService.isWindowFullScreen();
+  }
 
   get projectData() {
     return this.projectService.currentPackageData;
@@ -46,10 +73,19 @@ export class HeaderComponent {
   }
 
   get currentBoard() {
-    return this.projectData.board;
+    return this.projectService.currentBoardConfig?.name;
   }
 
-  loaded = false;
+  currentUrl = null;
+
+  get isDevMode() {
+    return isDevMode()
+  }
+
+  // 从 AppStoreService 获取要显示在 header 上的 apps
+  // get headerApps(): AppItem[] {
+  //   return this.appStoreService.getHeaderApps();
+  // }
 
   constructor(
     private projectService: ProjectService,
@@ -58,21 +94,35 @@ export class HeaderComponent {
     private uploaderService: UploaderService,
     private serialService: SerialService,
     private cd: ChangeDetectorRef,
-    private message: NzMessageService
+    private message: NzMessageService,
+    private modal: NzModalService,
+    private updateService: UpdateService,
+    private router: Router,
+    private electronService: ElectronService,
+    private configService: ConfigService,
+    private authService: AuthService,
+    private translate: TranslateService,
+    private platformService: PlatformService,
+    // private appStoreService: AppStoreService
   ) { }
 
-  ngAfterViewInit(): void {
+  async ngAfterViewInit() {
     this.projectService.stateSubject.subscribe((state) => {
-      if (state == 'loaded') {
-        this.loaded = true;
+      if (state == 'loaded' || state == 'saved') {
         // 将headerMenu中有disabled的按钮置为可用
         this.headerMenu.forEach((menu) => {
           if (menu.disabled) {
             menu.disabled = false;
           }
         });
+
+        // headerBtns中的按钮都置为默认状态
+        // this.headerBtns.forEach((btnGroup) => {
+        //   btnGroup.forEach((btn) => {
+        //     btn.state = 'default';
+        //   });
+        // });
       } else {
-        this.loaded = false;
         // 将headerMenu中有disabled的按钮置禁用
         this.headerMenu.forEach((menu) => {
           if (menu.disabled === false) {
@@ -82,7 +132,27 @@ export class HeaderComponent {
       }
       this.cd.detectChanges();
     });
+
     this.listenShortcutKeys();
+
+    this.authService.showUser.subscribe(state => {
+      this.showUser = state;
+    })
+    this.checkAndSetDefaultPort();
+  }
+
+  // 检查串口列表并设置默认串口
+  private async checkAndSetDefaultPort() {
+    try {
+      const ports = await this.serialService.getSerialPorts();
+      if (ports && ports.length === 1 && !this.currentPort) {
+        // 只有一个串口且当前没有选择串口时，设为默认
+        this.currentPort = ports[0].name;
+        this.cd.detectChanges();
+      }
+    } catch (error) {
+      console.warn('获取串口列表失败:', error);
+    }
   }
 
   showMenu = false;
@@ -95,32 +165,98 @@ export class HeaderComponent {
   }
 
   showPortList = false;
-  portList: PortItem[] = []
+  configList: PortItem[] = []
   boardKeywords = []; // 这个用来高亮显示正确开发板，如['arduino uno']，则端口菜单中如有包含'arduino uno'的串口则高亮显示
-  openPortList() {
+  openPortList(event?: MouseEvent) {
+    if (event) {
+      this.calculatePortListPosition(event);
+    } else {
+      // 快捷键触发时，查找上传按钮元素获取位置
+      const uploadBtn = document.querySelector('[data-action="upload"]') as HTMLElement;
+      if (uploadBtn) {
+        const rect = uploadBtn.getBoundingClientRect();
+        this.portListPosition = {
+          x: rect.left + 2,
+          y: 40
+        };
+      } else {
+        // 备用位置
+        this.portListPosition = { x: 40, y: 40 };
+      }
+    }
     let boardname = this.currentBoard.replace(' 2560', ' ').replace(' R3', '');
     this.boardKeywords = [boardname];
-    this.showPortList = !this.showPortList;
     this.getDevicePortList();
+    this.showPortList = true;
+    // this.cd.detectChanges();
   }
 
   closePortList() {
     this.showPortList = false;
-    this.cd.detectChanges();
+    // this.cd.detectChanges();
   }
 
-  selectPort(portItem) {
-    this.currentPort = portItem.name;
+  selectPort(item) {
+    if (item.action) {
+      this.process(item)
+      return
+    }
+    this.currentPort = item.name;
     this.closePortList();
   }
 
   async getDevicePortList() {
-    this.portList = await this.serialService.getSerialPorts();
+    let portList0: IMenuItem[] = await this.serialService.getSerialPorts();
+    if (portList0.length == 0) {
+      portList0 = [
+        {
+          name: 'Device not found',
+          text: '',
+          type: 'serial',
+          icon: 'fa-light fa-triangle-exclamation',
+          disabled: true,
+        }
+      ];
+    }
+
+    // 添加ESP32相关配置选项
+    if (this.projectService.currentBoardConfig['core'].indexOf('esp32') > -1) {
+      let temp = this.projectService.currentBoardConfig['type'].split(':');
+      let board = temp[temp.length - 1];
+      let esp32config = await this.projectService.updateEsp32ConfigMenu(board);
+      if (esp32config) {
+        portList0 = portList0.concat(esp32config)
+      }
+      // console.log('ESP32配置选项:', esp32config);
+    }
+
+    // 添加STM32相关配置选项
+    if (this.projectService.currentBoardConfig['core'].indexOf('stm32') > -1 &&
+      this.projectService.currentBoardConfig['description'].indexOf('Series') > -1) {
+      let temp = this.projectService.currentBoardConfig['type'].split(':');
+      let board = temp[temp.length - 1];
+      // console.log('STM32开发板标识:', board);
+      let stm32config = await this.projectService.updateStm32ConfigMenu(board);
+      if (stm32config) {
+        portList0 = portList0.concat(stm32config)
+      }
+      // console.log('STM32配置选项:', stm32config);
+    }
+
+    // 添加切换开发板功能
+    portList0.push({ sep: true });
+    portList0.push({
+      name: this.translate.instant('BOARD_SELECTOR.TITLE'),
+      icon: 'fa-light fa-layer-group',
+      action: 'board-select',
+      // children: boardList
+    })
+    this.configList = portList0;
     this.cd.detectChanges();
   }
 
-  onClick(item) {
-    this.process(item);
+  onClick(item, event = null) {
+    this.process(item, event);
   }
 
   isOpenTool(btn) {
@@ -155,74 +291,118 @@ export class HeaderComponent {
     return folderPath;
   }
 
-  async openProject(data) {
+  async openProject() {
     const path = await this.selectFolder();
     if (path) {
       await this.projectService.projectOpen(path);
     }
   }
 
-  async process(item: IMenuItem) {
-    switch (item.data.type) {
-      case 'window':
+  updateSubscription: any = null;
+
+  async process(item: IMenuItem, event = null) {
+    switch (item.action) {
+      case 'project-new':
+        if (this.isLoaded()) { // 只在已加载项目时检查
+          const canContinue = await this.checkUnsavedChanges('new');
+          if (!canContinue) return;
+        }
         this.uiService.openWindow(item.data);
         break;
-      case 'explorer':
-        this.openProject(item.data);
-        break;
-      case 'tool':
-        if (['AI', '应用商店'].includes(item.name)) {
-          this.message.warning('功能暂未开放');
-          break;
+      case 'project-open':
+        if (this.isLoaded()) { // 只在已加载项目时检查
+          const canContinue = await this.checkUnsavedChanges('open');
+          if (!canContinue) return;
         }
+        this.openProject();
+        break;
+      case 'project-save':
+        this.projectService.save();
+        break;
+      case 'project-save-as':
+        const path = await this.selectSaveAsFolder();
+        if (path) {
+          this.projectService.saveAs(path);
+        }
+        break;
+      case 'project-close':
+        if (this.isLoaded()) { // 只在已加载项目时检查
+          const canContinue = await this.checkUnsavedChanges('close');
+          if (!canContinue) return;
+        }
+        this.projectService.close();
+        break;
+      case 'project-open-by-explorer':
+        window['other'].openByExplorer(this.projectService.currentProjectPath);
+        break;
+      case 'tool-open':
         this.uiService.turnTool(item.data);
         break;
-      case 'terminal':
-        this.uiService.turnTerminal(item.data);
+      // case 'terminal':
+      //   this.uiService.turnTerminal(item.data);
+      //   break;
+      case 'compile':
+        if (item.state === 'doing') return;
+        item.state = 'doing';
+        this.builderService.build().then(result => {
+          item.state = result.state || 'done';
+        }).catch(err => {
+          console.log("编译未完成: ", JSON.stringify(err));
+          if (err && err.state) item.state = err.state;
+        })
         break;
-      case 'run-cmd':
-        // this.uiService.runCmd(item.data);
+      case 'upload':
+        // 确认是否选择串口
+        if (!this.serialService.currentPort) {
+          this.message.warning(this.translate.instant('SERIAL.SELECT_PORT_FIRST'));
+          this.openPortList(event);
+          return;
+        }
+        if (item.state === 'doing') return;
+        item.state = 'doing';
+        this.uploaderService.upload().then(result => {
+          item.state = result.state || 'done';
+        }).catch(err => {
+          console.log("上传未完成: ", JSON.stringify(err));
+          if (err && err.state) item.state = err.state;
+        });
         break;
-      case 'cmd':
-        if (item.data.data === 'compile') {
-          if (item.state === 'doing') return;
-          item.state = 'doing';
-          this.builderService.build().then(result => {
-            item.state = 'done';
-          }).catch(err => {
-            item.state = 'error';
-          })
-        } else if (item.data.data === 'upload') {
-          if (item.state === 'doing') return;
-          item.state = 'doing';
-          // 检查距离上次编译代码是否有变更，如无变更，则直接上传，否则重新编译再上传
-          this.uploaderService.upload().then(result => {
-            item.state = 'done';
-          }).catch(err => {
-            item.state = 'error';
-          })
-        } else if (item.data.data === 'save') {
-          this.projectService.save();
-        } else if (item.data.data === 'save-as') {
-          const path = await this.selectSaveAsFolder();
-          console.log('save as path:', path);
-          if (path) {
-            this.projectService.saveAs(path);
-          }
-        } else if (item.data.data === 'close') {
-          this.projectService.close();
+      case 'settings-open':
+        this.uiService.openWindow(item.data);
+        break;
+      case 'check-update':
+        this.updateService.clearSkipVersions();
+        if (!this.updateSubscription) {
+          this.updateSubscription = this.updateService.updateStatus.subscribe((status) => {
+            // console.log('更新状态:', status);
+            if (status === 'not-available') {
+              this.message.info('当前已是最新版本');
+            }
+          });
+        }
+        this.updateService.checkForUpdates();
+        break;
+      case 'browser-open':
+        this.electronService.openUrl(item.data.url);
+        break;
+      case 'app-exit':
+        this.close();
+        break;
+      case 'example-open':
+        if (this.isLoaded()) { // 只在已加载项目时检查
+          this.electronService.openNewInStance('/main/playground')
+        } else {
+          this.router.navigate(['/main/playground']);
         }
         break;
-      case 'other':
-        if (item.data.action == 'openByExplorer') {
-          window['other'].openByExplorer(this.projectService.currentProjectPath);
-        } else if (item.data.action == 'openByBrowser') {
-          window['other'].openByBrowser(item.data.url);
-        } else if (item.data.action == 'exitApp') {
-          window['other'].exitApp();
-        }
+      case 'board-select':
+        this.openBoardSelectorDialog();
+        break;
+      case 'feedback':
+        this.uiService.openFeedback();
         break;
       default:
+        console.log('未处理的操作:', item.action);
         break;
     }
   }
@@ -232,20 +412,36 @@ export class HeaderComponent {
   }
 
   maximize() {
-    window['iWindow'].maximize();
+    if (window['iWindow'].isMaximized()) {
+      window['iWindow'].unmaximize();
+    } else {
+      window['iWindow'].maximize();
+    }
   }
 
-  close() {
-    window['iWindow'].close();
+  async close() {
+    const canClose = await this.checkUnsavedChanges('close');
+    if (canClose) {
+      window['iWindow'].close();
+    }
   }
 
   // 快捷键功能，监听键盘事件,执行对应的操作
   private shortcutMap: Map<string, IMenuItem> = new Map();
-
   private initShortcutMap(): void {
+    // 处理 HEADER_MENU 的快捷键
     for (const item of HEADER_MENU) {
       if (item.text) {
         // 将快捷键文本转换成标准格式(如: "ctrl+s")
+        const shortcutKey = this.normalizeShortcutKey(item.text);
+        if (shortcutKey) {
+          this.shortcutMap.set(shortcutKey, item);
+        }
+      }
+    }
+    // 处理 HEADER_BTNS 的快捷键（编译、上传等）
+    for (const item of HEADER_BTNS) {
+      if (item.text) {
         const shortcutKey = this.normalizeShortcutKey(item.text);
         if (shortcutKey) {
           this.shortcutMap.set(shortcutKey, item);
@@ -289,33 +485,283 @@ export class HeaderComponent {
     return parts.join('+');
   }
 
-  // 监听快捷键
+  /* 监听快捷键
+  */
   listenShortcutKeys() {
     this.initShortcutMap();
     window.addEventListener('keydown', (event: KeyboardEvent) => {
-      // 只处理包含修饰键的组合键
-      if (event.ctrlKey || event.shiftKey || event.altKey) {
+      // 处理窗口缩放快捷键
+      if (event.ctrlKey && !event.shiftKey && !event.altKey) {
+        if (event.key === '-' || event.key === '_') {
+          event.preventDefault();
+          this.zoomOut();
+          return;
+        }
+        if (event.key === '=' || event.key === '+') {
+          event.preventDefault();
+          this.zoomIn();
+          return;
+        }
+        if (event.key === '0') {
+          event.preventDefault();
+          this.resetZoom();
+          return;
+        }
+      }
+
+      // 处理功能键 F1-F12
+      const isFunctionKey = /^f([1-9]|1[0-2])$/i.test(event.key);
+      
+      // 处理包含修饰键的组合键或功能键
+      if (event.ctrlKey || event.shiftKey || event.altKey || isFunctionKey) {
         const shortcutKey = this.getShortcutFromEvent(event);
         const menuItem = this.shortcutMap.get(shortcutKey);
 
-        if (menuItem) {
+        if (menuItem && this.showInRouter(menuItem)) {
           event.preventDefault(); // 阻止默认行为
           console.log('快捷键触发:', menuItem.name, shortcutKey);
 
           // 执行对应的操作
-          if (menuItem.data && menuItem.data.type) {
+          if (menuItem.action) {
             this.process(menuItem);
-          } else if (menuItem.action) {
-            // 如果需要处理action类型的菜单项，可以在这里添加逻辑
-            // this.handleMenuAction(menuItem);
-            console.log('需要处理action:', menuItem.action);
           }
         }
       }
     });
   }
-}
 
+  // 窗口缩放功能
+  private currentZoomLevel = 0; // 0表示100%缩放
+
+  zoomIn() {
+    this.currentZoomLevel = Math.min(this.currentZoomLevel + 0.5, 3);
+    this.setZoomLevel(this.currentZoomLevel);
+  }
+
+  zoomOut() {
+    this.currentZoomLevel = Math.max(this.currentZoomLevel - 0.5, -3);
+    this.setZoomLevel(this.currentZoomLevel);
+  }
+
+  resetZoom() {
+    this.currentZoomLevel = 0;
+    this.setZoomLevel(this.currentZoomLevel);
+  }
+
+  private setZoomLevel(level: number) {
+    if (this.electronService.isElectron) {
+      // 使用preload中暴露的webFrame API设置缩放级别
+      window['webFrame'].setZoomLevel(level);
+    } else {
+      // 在浏览器中使用CSS transform作为备选方案
+      const zoomFactor = Math.pow(1.2, level);
+      document.body.style.transform = `scale(${zoomFactor})`;
+      document.body.style.transformOrigin = 'top left';
+      if (zoomFactor !== 1) {
+        document.body.style.width = `${100 / zoomFactor}%`;
+        document.body.style.height = `${100 / zoomFactor}%`;
+      } else {
+        document.body.style.width = '';
+        document.body.style.height = '';
+      }
+    }
+  }
+
+  async checkUnsavedChanges(action: 'close' | 'open' | 'new'): Promise<boolean> {
+    // 检查项目是否有未保存的更改
+    if (!await this.projectService.hasUnsavedChanges()) {
+      return true;
+    }
+
+    return new Promise<boolean>((resolve) => {
+      const modalRef = this.modal.create({
+        nzTitle: null,
+        nzFooter: null,
+        nzClosable: false,
+        nzBodyStyle: {
+          padding: '0',
+        },
+        nzWidth: '350px',
+        nzContent: UnsaveDialogComponent,
+        nzData: { action },
+        // nzDraggable: true,
+      });
+
+      modalRef.afterClose.subscribe(async result => {
+        if (!result) {
+          // 用户直接关闭对话框，视为取消操作
+          resolve(false);
+          return;
+        }
+        switch (result.result) {
+          case 'save':
+            // 保存项目并继续
+            await this.projectService.save();
+            resolve(true);
+            break;
+          case 'continue':
+            // 不保存，但继续操作
+            resolve(true);
+            break;
+          case 'cancel':
+          default:
+            // 取消操作
+            resolve(false);
+            break;
+        }
+      });
+    });
+  }
+
+  openLoginDialog() {
+    const modalRef = this.modal.create({
+      nzTitle: null,
+      nzFooter: null,
+      nzClosable: false,
+      nzBodyStyle: {
+        padding: '0',
+      },
+      nzWidth: '350px',
+      nzContent: LoginDialogComponent
+    });
+  }
+
+  showInRouter(menuItem: IMenuItem) {
+    if (!menuItem.router) {
+      return true;
+    } else {
+      for (const router of menuItem.router) {
+        if (this.router.url.indexOf(router) > -1) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // 判断路由是否为 ['/main/blockly-editor', '/main/code-editor']中的一个，如果是返回true
+  isLoaded() {
+    for (const router of ['/main/blockly-editor', '/main/code-editor']) {
+      if (this.router.url.indexOf(router) > -1) {
+        return true;
+      }
+    }
+  }
+
+  // 选择子菜单项-修改编译上传配置
+  async selectSubItem(subItem: IMenuItem) {
+    console.log('选择子菜单项:', subItem);
+    let packageJson = await this.projectService.getPackageJson();
+    packageJson['projectConfig'] = packageJson['projectConfig'] || {};
+
+    // // 判断是否为PartitionScheme并且值为'custom'，如果是则弹出文件选择
+    // if (subItem.key === 'PartitionScheme' && subItem.data.toLowerCase() === 'custom') {
+    //   const folderPath = await window['ipcRenderer'].invoke('select-file', {
+    //     title: '选择分区文件',
+    //     path: this.projectService.currentProjectPath,
+    //   });
+
+    //   // console.log('选中的分区文件路径：', folderPath);
+
+    //   if (!folderPath) {
+    //     this.message.warning('未选择分区文件，已取消');
+    //     return;
+    //   }
+
+    //   // 执行复制操作，复制到项目根目录下的 'partitions.csv'
+    //   const destPath = window['path'].join(this.projectService.currentProjectPath, 'partitions.csv');
+    //   if (folderPath != destPath) {
+    //     // console.log('复制分区文件到项目目录:', destPath);
+    //     try {
+    //       window['fs'].copySync(folderPath, destPath);
+    //     } catch (error) {
+    //       console.warn('复制分区文件失败:', error);
+    //       this.message.error('复制分区文件失败');
+    //       return;
+    //     }
+    //   }
+    // }
+
+    packageJson['projectConfig'][subItem.key] = subItem.data;
+    this.projectService.setPackageJson(packageJson);
+    // 判断是否是STM32，是则更新项目配置
+    if (this.projectService.currentBoardConfig['core'].indexOf('stm32') > -1 &&
+      this.projectService.currentBoardConfig['description'].indexOf('Series') > -1) {
+      // 如果subItem包含pnum variant字段，则调用比较函数
+      if (subItem.key === 'pnum' && subItem.extra?.build.variant) {
+        let newPinConfig = subItem;
+        this.projectService.compareStm32PinConfig(newPinConfig)
+      }
+    }
+  }
+
+  showUser = false;
+
+  closeUser() {
+    this.showUser = false;
+  }
+
+
+  portListPosition = { x: 40, y: 40 };
+  calculatePortListPosition(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    // 计算端口列表的位置，使其显示在点击元素的下方
+    this.portListPosition = {
+      x: rect.left + 2,
+      y: 40
+    };
+
+    // 确保端口列表不会超出窗口边界
+    const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+    const portListWidth = 300; // 端口列表的宽度
+    const portListHeight = 400; // 端口列表的高度
+
+    if (this.portListPosition.x + portListWidth > windowWidth) {
+      this.portListPosition.x = windowWidth - portListWidth - 3;
+    }
+
+    if (this.portListPosition.y + portListHeight > windowHeight) {
+      this.portListPosition.y = windowHeight - portListHeight - 3;
+    }
+  }
+
+  async openBoardSelectorDialog() {
+    // 获取开发板列表
+    let boardList = await this.configService.loadBoardList();
+    console.log(boardList);
+
+    // 显示开发板选择对话框
+    const modalRef = this.modal.create({
+      nzTitle: null,
+      nzFooter: null,
+      nzClosable: false,
+      nzBodyStyle: {
+        padding: '0',
+      },
+      nzWidth: '400px',
+      nzContent: BoardSelectorDialogComponent,
+      nzData: {
+        boardList: boardList
+      }
+    });
+
+    // // 处理对话框返回结果
+    // modalRef.afterClose.subscribe(result => {
+    //   if (result && result.result === 'confirm') {
+    //     // 开发板已经在对话框内切换完成，只需要更新UI
+    //     this.cd.detectChanges();
+    //   }
+    // });
+  }
+
+  appStoreBtn = {
+    name: 'MENU.APP_STORE',
+    action: 'tool-open',
+    data: { type: 'tool', data: "app-store" },
+    icon: 'fa-light fa-grid-2-plus',
+  }
+}
 
 export interface RunState {
   state: 'default' | 'doing' | 'done' | 'error' | 'warn';

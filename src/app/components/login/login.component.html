@@ -1,0 +1,95 @@
+<div class="login-box ccenter">
+    <div class="inner">
+        <div class="header">{{ 'LOGIN.HEADER' | translate }}</div>
+        <div class="line"></div>
+        <div class="btns">
+            <div class="item ccenter" (click)="select('github')" [ngClass]="{'active':mode=='github'}">
+                <div class="icon ccenter"><i class="fa-brands fa-github"></i></div>
+                Github
+            </div>
+            <!-- <div class="item ccenter" (click)="select('google')" [ngClass]="{'active':mode=='google'}">
+            <i class="fa-brands fa-google"></i>
+            Google
+        </div>
+        <div class="item ccenter" (click)="select('microsoft')" [ngClass]="{'active':mode=='microsoft'}">
+            <i class="fa-brands fa-microsoft"></i>
+            Microsoft
+        </div>
+        <div class="item ccenter" (click)="select('wechat')" [ngClass]="{'active':mode=='wechat'}">
+            <i class="fa-brands fa-weixin"></i>
+            WeChat
+        </div> -->
+            <div class="item ccenter" (click)="select('phone')" [ngClass]="{'active':mode=='phone'}">
+                <div class="icon ccenter"><i class="fa-light fa-mobile"></i></div>
+                {{ 'LOGIN.PHONE' | translate }}
+            </div>
+
+        </div>
+        @switch(mode){
+        @case ('github') {
+        <div class="description">
+            <div>
+                {{ 'LOGIN.BENEFITS_TITLE' | translate }}
+                <ul>
+                    <li>{{ 'LOGIN.BENEFIT_AI' | translate }}</li>
+                    <li>{{ 'LOGIN.BENEFIT_SHARE' | translate }}</li>
+                    <li>{{ 'LOGIN.BENEFIT_EXPERIENCE' | translate }}</li>
+                </ul>
+                <div class="notice">
+                    <strong>{{ 'LOGIN.NOTICE_LABEL' | translate }}</strong>{{ 'LOGIN.NOTICE_CONTENT' | translate }}
+                </div>
+            </div>
+            <div class="login-btn">
+                <button nz-button nzType="primary" (click)="loginByGithub()">{{ 'LOGIN.GITHUB_LOGIN' | translate }}</button>
+            </div>
+        </div>
+        }
+        @case ('google') {
+
+        }
+        @case ('wechat') {
+        <div class="wechat ccenter">
+            <div class="qrcode">
+
+            </div>
+            <div>
+                {{ 'LOGIN.WECHAT_SCAN' | translate }}
+            </div>
+        </div>
+        }
+        @case ('microsoft') {
+
+        }
+        @case ('phone') {
+        <div class="description">
+            <div>
+                {{ 'LOGIN.PHONE_NOT_OPEN' | translate }}<br />
+                {{ 'LOGIN.PHONE_BETA_ONLY' | translate }}
+            </div>
+        </div>
+        <div class="phone-login-box">
+            <div class="item">
+                <div class="ccenter">
+                    <i class="fa-light fa-user"></i>
+                </div>
+                <input nz-input type="text" [placeholder]="'LOGIN.PHONE_PLACEHOLDER' | translate" [(ngModel)]="inputUsername" />
+            </div>
+            <div class="item">
+                <div class="ccenter">
+                    <i class="fa-light fa-lock"></i>
+                </div>
+                <input nz-input type="password" [placeholder]="'LOGIN.PASSWORD_PLACEHOLDER' | translate" [(ngModel)]="inputPassword" />
+            </div>
+            <div class="actions">
+                <button nz-button nzType="primary" [nzLoading]="isWaiting" (click)="loginByPhone()">
+                    {{ isWaiting ? ('LOGIN.LOGGING_IN' | translate) : ('LOGIN.LOGIN' | translate) }}
+                </button>
+            </div>
+        </div>
+        }
+        @default {
+        <div class="text text2">{{ 'LOGIN.SELECT_METHOD' | translate }}</div>
+        }
+        }
+    </div>
+</div>

@@ -8,12 +8,12 @@ import { NzStepsModule } from 'ng-zorro-antd/steps';
 import { ElectronService } from '../../services/electron.service';
 import { ProjectService } from '../../services/project.service';
 import { ConfigService } from '../../services/config.service';
-import { generateDateString } from '../../func/func';
 import { NzSelectModule } from 'ng-zorro-antd/select';
-import { TerminalService } from '../../tools/terminal/terminal.service';
-import { UiService } from '../../services/ui.service';
 import { NpmService } from '../../services/npm.service';
 import { NzTagModule } from 'ng-zorro-antd/tag';
+import { TranslateModule } from '@ngx-translate/core';
+import { UiService } from '../../services/ui.service';
+import { PlatformService } from '../../services/platform.service';
 
 @Component({
   selector: 'app-project-new',
@@ -25,7 +25,8 @@ import { NzTagModule } from 'ng-zorro-antd/tag';
     NzInputModule,
     NzStepsModule,
     NzSelectModule,
-    NzTagModule
+    NzTagModule,
+    TranslateModule
   ],
   templateUrl: './project-new.component.html',
   styleUrl: './project-new.component.scss',
@@ -53,20 +54,26 @@ export class ProjectNewComponent {
   boardList: any[] = [];
   tagListRandom;
 
+  get resourceUrl() {
+    return this.configService.getCurrentResourceUrl() + '/imgs/boards/';
+  }
+
   constructor(
     private electronService: ElectronService,
     private projectService: ProjectService,
     private configService: ConfigService,
-    private terminalService: TerminalService,
+    private npmService: NpmService,
     private uiService: UiService,
-    private npmService: NpmService
+    private platformService: PlatformService
   ) { }
 
   async ngOnInit() {
     if (this.electronService.isElectron) {
-      this.newProjectData.path = window['path'].getUserDocuments() + '\\aily-project\\';
+      const pt = this.platformService.getPlatformSeparator();
+      this.newProjectData.path = window['path'].getUserDocuments() + `${pt}aily-project${pt}`;
     }
-    this._boardList = this.process(await this.configService.loadBoardList());
+    await this.configService.init();
+    this._boardList = this.process(this.configService.boardList);
     this.boardList = JSON.parse(JSON.stringify(this._boardList));
     this.currentBoard = this.boardList[0];
 
@@ -76,13 +83,7 @@ export class ProjectNewComponent {
     this.newProjectData.board.nickname = this.currentBoard.nickname;
     this.newProjectData.board.name = this.currentBoard.name;
     this.newProjectData.board.version = this.currentBoard.version;
-    this.newProjectData.name = this.generateUniqueProjectName();
-
-    // 终端操作
-    let { pid } = await this.uiService.openTerminal();
-    console.log('终端pid：', pid);
-
-    this.terminalService.currentPid = pid;
+    this.newProjectData.name = this.projectService.generateUniqueProjectName(this.newProjectData.path, 'project_');
   }
 
   process(array) {
@@ -104,8 +105,8 @@ export class ProjectNewComponent {
     }
   }
 
-
   selectBoard(boardInfo: BoardInfo) {
+    // if (boardInfo.disabled) return;
     this.currentBoard = boardInfo;
     this.newProjectData.board.name = boardInfo.name;
     this.newProjectData.board.nickname = boardInfo.nickname;
@@ -125,14 +126,18 @@ export class ProjectNewComponent {
       path: this.newProjectData.path,
     });
     // console.log('选中的文件夹路径：', folderPath);
-    this.newProjectData.path = folderPath + '\\';
+    const pt = this.platformService.getPlatformSeparator();
+    if (folderPath.slice(-1) !== pt) {
+      this.newProjectData.path = folderPath + pt;
+    }
     // 在这里对返回的 folderPath 进行后续处理
   }
 
   // 检查项目名称是否存在
   showIsExist = false;
   async checkPathIsExist(): Promise<boolean> {
-    let path = this.newProjectData.path + '/' + this.newProjectData.name;
+    const pt = this.platformService.getPlatformSeparator();
+    let path = this.newProjectData.path + pt + this.newProjectData.name;
     let isExist = window['path'].isExists(path);
     if (isExist) {
       this.showIsExist = true;
@@ -148,52 +153,16 @@ export class ProjectNewComponent {
       return;
     }
     this.currentStep = 2;
-
     await this.projectService.projectNew(this.newProjectData);
-
-    // setTimeout(() => {
-    //   window['subWindow'].close();
-    // }, 1000);
+    this.uiService.closeWindow();
   }
 
   openUrl(url) {
-    if (this.electronService.isElectron) {
-      window['other'].openByBrowser(url);
-    }
+    this.electronService.openUrl(url);
   }
 
-  generateUniqueProjectName(prefix = 'project_'): string {
-    const baseDateStr = generateDateString();
-    prefix = prefix + baseDateStr;
-
-    // 尝试使用字母后缀 a-z
-    for (let charCode = 97; charCode <= 122; charCode++) {
-      const suffix = String.fromCharCode(charCode);
-      const projectName: string = prefix + suffix;
-      const projectPath = this.newProjectData.path + '/' + projectName;
-
-      if (!window['path'].isExists(projectPath)) {
-        return projectName;
-      }
-    }
-
-    // 如果所有字母都已使用，则使用数字后缀
-    let numberSuffix = 0;
-    while (true) {
-      const projectName = prefix + 'a' + numberSuffix;
-      const projectPath = this.newProjectData.path + '/' + projectName;
-
-      if (!window['path'].isExists(projectPath)) {
-        return projectName;
-      }
-
-      numberSuffix++;
-
-      // 安全检查，防止无限循环
-      if (numberSuffix > 1000) {
-        return prefix + 'a' + Date.now(); // 极端情况下使用时间戳
-      }
-    }
+  help() {
+    this.electronService.openUrl("https://github.com/ailyProject/aily-blockly-boards/blob/main/readme.md");
   }
 }
 
@@ -205,7 +174,9 @@ export interface BoardInfo {
   "img": string,
   "description": string,
   "url": string,
-  "brand": string
+  "brand": string,
+  "disabled": boolean, // 是否禁用
+  "type"?: string, // 开发板类型/核心架构 (如 esp32:esp32, arduino:avr, etc)
 }
 
 export interface NewProjectData {

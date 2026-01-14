@@ -1,23 +1,20 @@
-import { Component, ElementRef, Input, ViewChild } from '@angular/core';
+import { Component, ElementRef, ViewChild } from '@angular/core';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { ElectronService } from '../../services/electron.service';
 import { UiService } from '../../services/ui.service';
 import { ProjectService } from '../../services/project.service';
-import { NzTabsModule } from 'ng-zorro-antd/tabs';
 import { TerminalService } from './terminal.service';
+import { CommonModule } from '@angular/common';
 
 @Component({
   selector: 'app-terminal',
-  imports: [NzTabsModule],
+  imports: [CommonModule],
   templateUrl: './terminal.component.html',
   styleUrl: './terminal.component.scss',
 })
 export class TerminalComponent {
-  @Input() tab = 'default';
-  selectedTabIndex = 0;
-
   @ViewChild('terminal') terminalEl: ElementRef;
 
   terminal;
@@ -28,14 +25,14 @@ export class TerminalComponent {
     private electronService: ElectronService,
     private uiService: UiService,
     private projectService: ProjectService,
-    private terminalService: TerminalService
+    private terminalService: TerminalService,
   ) { }
 
   close() {
     this.uiService.closeTool('terminal');
   }
 
-  trash() {
+  clear() {
     this.terminal.write('\x1bc');
     if (this.electronService.isElectron) {
       this.terminalService.send('clear\r');
@@ -73,7 +70,7 @@ export class TerminalComponent {
   ngOnDestroy(): void {
     this.closeNodePty();
     this.terminalEl.nativeElement.removeEventListener('contextmenu', this.contextMenuListener);
-    this.resizeObserver.disconnect();
+    this.resizeObserver?.disconnect();
     this.terminal.dispose();
   }
 

@@ -1,11 +1,14 @@
 import { Pipe, PipeTransform } from '@angular/core';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
 @Pipe({
   name: 'showNR',
   standalone: true
 })
 export class ShowNRPipe implements PipeTransform {
-  transform(value: Uint8Array | string): string {
+  constructor(private sanitizer: DomSanitizer) { }
+
+  transform(value: Uint8Array | string): SafeHtml {
     if (!value) return '';
 
     // 如果输入是 Uint8Array，先转换为字符串
@@ -17,8 +20,11 @@ export class ShowNRPipe implements PipeTransform {
       strValue = value;
     }
 
+    // 转义HTML特殊字符，防止XSS攻击
+    strValue = this.escapeHtml(strValue);
+
     // 替换换行符
-    strValue = strValue.replace(/\n/g, '<span class="zf">\\n</span>');
+    strValue = strValue.replace(/\n/g, '<span class="zf">\\n</span><br>');
 
     // 替换回车符
     strValue = strValue.replace(/\r/g, '<span class="zf">\\r</span>');
@@ -31,6 +37,17 @@ export class ShowNRPipe implements PipeTransform {
       return `<span class="zf">\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}</span>`;
     });
 
-    return strValue;
+    // 使用DomSanitizer标记HTML为安全
+    return this.sanitizer.bypassSecurityTrustHtml(strValue);
+  }
+
+  // 转义HTML特殊字符
+  private escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 }

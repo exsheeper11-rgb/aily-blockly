@@ -1,33 +1,66 @@
 // 这个文件用于和cli交互，进行编译和烧录等操作
 const { ipcMain } = require("electron");
 const pty = require("@lydell/node-pty");
+const { isWin32 } = require("./platform");
 
 // 匹配 PowerShell 提示符: PS D:\path>   以后需要匹配mac os和linux的提示符（陈吕洲 2025.3.4）
-const promptRegex = /PS [A-Z]:(\\[^\\]+)+>/g;
-const terminals = new Map();
-
-// 清除ANSI转义序列的函数
-function stripAnsiEscapeCodes(text) {
-  // 匹配所有ANSI转义序列
-  return text.replace(/\x1B\[(?:[0-9]{1,3}(?:;[0-9]{1,3})*)?[m|K|h|l|H|A-Z]/g, '');
+const promptRegexMap = {
+  "win32": /PS [A-Z]:(\\[^\\]+)+>/g,
+  "darwin": /(\x1B\[[0-9;]*[A-Za-z])*[^#%>]*[#%>]\s*$/,
+  "linux": /(\x1B\[[0-9;]*[A-Za-z])*[^#%>]*[#%>]\s*$/
 }
 
+const shellMap = {
+  "win32": "powershell.exe",
+  "darwin": "zsh",
+  "linux": "bash",
+}
+
+const promptRegex = promptRegexMap[process.platform]
+const terminals = new Map();
+
 function registerTerminalHandlers(mainWindow) {
+  // 获取当前平台的shell
+  ipcMain.handle("terminal-get-shell", (event) => {
+    return shellMap[process.platform];
+  });
+
   ipcMain.handle("terminal-create", (event, args) => {
     console.log("terminal-create args ", args);
-    
     return new Promise((resolve, reject) => {
-      const shell = process.platform === "win32" ? "powershell.exe" : "bash";
+      const shell = shellMap[process.platform];
+
+      // 确定工作目录
+      let cwd = args.cwd;
+      if (!cwd) {
+        // Windows使用USERPROFILE，其他平台使用HOME
+        cwd = isWin32
+          ? process.env.USERPROFILE
+          : process.env.HOME;
+      }
+
+      // 检查cwd是否存在
+      const fs = require('fs');
+      if (!fs.existsSync(cwd)) {
+        console.warn(`指定的工作目录不存在: ${cwd}，将使用系统临时目录`);
+        cwd = require('os').tmpdir(); // 使用临时目录作为最后的备选
+      }
+
+      console.log(`启动终端，工作目录: ${cwd}`);
+
       const ptyProcess = pty.spawn(shell, [], {
         name: "xterm-color",
         cols: args.cols || 80,  // 确保有合适的默认值
         rows: args.rows || 24,
-        cwd: args.cwd || process.env.HOME,
+        cwd: cwd,
         env: process.env,
       });
 
       console.log("new terminal pid: ", ptyProcess.pid);
-      terminals.set(ptyProcess.pid, ptyProcess);
+      // 当前win10上有问题，所以先固定一个terminal
+      terminals.set("currentPid", ptyProcess);
+
+      // terminals.set(ptyProcess.pid, ptyProcess);
       // 设置一个标志来避免重复解析
       let isResolved = false;
       // 设置超时保护
@@ -55,7 +88,8 @@ function registerTerminalHandlers(mainWindow) {
   });
 
   ipcMain.on("terminal-to-pty", (event, { pid, input }) => {
-    const ptyProcess = terminals.get(parseInt(pid, 10));
+    // const ptyProcess = terminals.get(parseInt(pid, 10));
+    const ptyProcess = terminals.get("currentPid");
     if (ptyProcess) {
       ptyProcess.write(input);
     }
@@ -63,7 +97,8 @@ function registerTerminalHandlers(mainWindow) {
 
   // 终端大小调整处理
   ipcMain.on("terminal-resize", (event, { pid, cols, rows }) => {
-    const ptyProcess = terminals.get(parseInt(pid, 10));
+    // const ptyProcess = terminals.get(parseInt(pid, 10));
+    const ptyProcess = terminals.get("currentPid");
     if (ptyProcess) {
       ptyProcess.resize(cols, rows);
     }
@@ -81,46 +116,59 @@ function registerTerminalHandlers(mainWindow) {
 
   // 异步输入，可以获取到数据
   ipcMain.handle('terminal-to-pty-async', async (event, { pid, input }) => {
-    const ptyProcess = terminals.get(parseInt(pid, 10));
-    console.log('terminal-to-pty-async pid ', pid, ' input ', input);
     return new Promise((resolve, reject) => {
-      try {
-        let commandOutput = '';
-        let commandTimeout = null;
-        // 临时数据处理函数
-        const dataHandler = (e) => {
-          // 累积所有输出
-          commandOutput += e;
+      const ptyProcess = terminals.get("currentPid");
+      console.log('terminal-to-pty-async pid ', pid, ' input ', input);
+      let output = '';
+      let dataHandler;
+      let timeoutId;
 
-          // 检查是否检测到命令提示符，表示命令已完成
-          if (promptRegex.test(commandOutput)) {
-            clearTimeout(commandTimeout);
+      // 创建超时处理
+      timeoutId = setTimeout(() => {
+        ptyProcess.removeListener('data', dataHandler);
+        reject(new Error('Command execution timed out'));
+      }, 60000);
+
+      // 收集输出数据
+      dataHandler = (data) => {
+        output += data;
+
+        // 可以根据特定标记判断命令是否完成（如提示符出现）
+        // 这里使用简单的延迟检测方式，适合大多数命令
+        clearTimeout(timeoutId);
+
+        // 判断是否是npm install命令
+        if (input.includes('npm install') || input.includes('npm uninstall')) {
+          // 判断data是否类似于：added 9 packages in 0.697s
+          if ((output.includes('added') || output.includes('updated')) || output.includes('removed') && output.includes('packages')) {
+            // 如果检测到提示符，表示命令执行完成
+            console.log('npm command completed');
             ptyProcess.removeListener('data', dataHandler);
-            // 移除命令提示符部分，只保留命令输出
-            // 从最后一次出现提示符的位置开始截取
-            const lastPromptIndex = commandOutput.search(promptRegex);
-            if (lastPromptIndex > 0) {
-              commandOutput = commandOutput.substring(0, lastPromptIndex);
-            }
-            resolve(stripAnsiEscapeCodes(commandOutput.trim()));
+            resolve(output);
+          } else {
+            timeoutId = setTimeout(() => {
+              ptyProcess.removeListener('data', dataHandler);
+              console.log('npm install command timed out');
+              resolve(output);
+            }, 2000); // 等待1秒无数据后认为命令执行完毕
           }
-        };
+        } else {
+          timeoutId = setTimeout(() => {
+            ptyProcess.removeListener('data', dataHandler);
+            resolve(output);
+          }, 1000); // 等待500ms无数据后认为命令执行完毕
+        }
 
-        // 添加临时监听器
-        ptyProcess.addListener('data', dataHandler);
+        // timeoutId = setTimeout(() => {
+        //   ptyProcess.removeListener('data', dataHandler);
+        //   resolve(output);
+        // }, 500); // 等待500ms无数据后认为命令执行完毕
+      };
 
-        // 发送命令
-        ptyProcess.write(input);
-
-        // 设置超时保护
-        commandTimeout = setTimeout(() => {
-          ptyProcess.removeListener('data', dataHandler);
-          resolve(stripAnsiEscapeCodes(commandOutput));
-        }, 120000); // 默认120秒超时
-      } catch (error) {
-        reject(error.message || '执行命令失败');
-      }
-    });
+      ptyProcess.on('data', dataHandler);
+      // 发送命令
+      ptyProcess.write(input);
+    })
   });
 
   // 存储流式输出回调
@@ -128,7 +176,8 @@ function registerTerminalHandlers(mainWindow) {
 
   // 添加流式输出处理函数
   ipcMain.handle("terminal-stream-start", (event, { pid, streamId }) => {
-    const ptyProcess = terminals.get(parseInt(pid, 10));
+    // const ptyProcess = terminals.get(parseInt(pid, 10));
+    const ptyProcess = terminals.get("currentPid");
     if (!ptyProcess) {
       return { success: false, error: 'Terminal not found' };
     }
@@ -183,7 +232,8 @@ function registerTerminalHandlers(mainWindow) {
 
   // 停止流式输出
   ipcMain.handle('terminal-stream-stop', (event, { pid, streamId }) => {
-    const ptyProcess = terminals.get(parseInt(pid, 10));
+    // const ptyProcess = terminals.get(parseInt(pid, 10));
+    const ptyProcess = terminals.get("currentPid");
     if (!ptyProcess) {
       return { success: false, error: 'Terminal not found' };
     }
@@ -218,7 +268,8 @@ function registerTerminalHandlers(mainWindow) {
 
   // 执行命令并流式输出结果
   ipcMain.handle('terminal-to-pty-stream', async (event, { pid, input, streamId }) => {
-    const ptyProcess = terminals.get(parseInt(pid, 10));
+    // const ptyProcess = terminals.get(parseInt(pid, 10));
+    const ptyProcess = terminals.get("currentPid");
     if (!ptyProcess) {
       return { success: false, error: 'Terminal not found' };
     }
@@ -245,7 +296,8 @@ function registerTerminalHandlers(mainWindow) {
 
   ipcMain.on("terminal-close", (event, { pid }) => {
     console.log("terminal-close pid ", pid);
-    const ptyProcess = terminals.get(parseInt(pid, 10));
+    // const ptyProcess = terminals.get(parseInt(pid, 10));
+    const ptyProcess = terminals.get("currentPid");
     if (ptyProcess) {
       // 清理流回调
       if (streamCallbacks.has(pid)) {
@@ -259,7 +311,8 @@ function registerTerminalHandlers(mainWindow) {
 
   // 在 terminal.js 的 registerTerminalHandlers 函数中添加
   ipcMain.handle("terminal-interrupt", (event, { pid }) => {
-    const ptyProcess = terminals.get(parseInt(pid, 10));
+    // const ptyProcess = terminals.get(parseInt(pid, 10));
+    const ptyProcess = terminals.get("currentPid");
     if (!ptyProcess) {
       return { success: false, error: 'Terminal not found' };
     }
@@ -281,7 +334,8 @@ function registerTerminalHandlers(mainWindow) {
 
   // 添加强制终止方法（当Ctrl+C不起作用时使用）
   ipcMain.handle("terminal-kill-process", async (event, { pid, processName }) => {
-    const ptyProcess = terminals.get(parseInt(pid, 10));
+    // const ptyProcess = terminals.get(parseInt(pid, 10));
+    const ptyProcess = terminals.get("currentPid");
     if (!ptyProcess) {
       return { success: false, error: 'Terminal not found' };
     }

@@ -2,6 +2,7 @@ import { ChangeDetectorRef, Component, ElementRef, Renderer2 } from '@angular/co
 import { NzProgressModule } from 'ng-zorro-antd/progress';
 import { CommonModule } from '@angular/common';
 import { NoticeOptions, NoticeService } from '../../services/notice.service';
+import { UiService } from '../../services/ui.service';
 
 @Component({
   selector: 'app-notification',
@@ -15,6 +16,7 @@ import { NoticeOptions, NoticeService } from '../../services/notice.service';
 export class NotificationComponent {
 
   data: NoticeOptions;
+  isClosable = true;
 
   willClose = false;
 
@@ -29,14 +31,21 @@ export class NotificationComponent {
     private noticeService: NoticeService,
     private cd: ChangeDetectorRef,
     private elementRef: ElementRef,
-    private renderer: Renderer2
+    private renderer: Renderer2,
+    private uiService: UiService
   ) { }
 
   timer;
 
   ngOnInit(): void {
     this.noticeService.stateSubject.subscribe((data) => {
-      this.data = data;
+      if (data && data.showProgress !== false) {
+        data.showProgress = true;
+      }
+
+      const closable = data ? (data.closable ?? data.state !== 'doing') : true;
+      this.isClosable = closable;
+      this.data = data ? { ...data, closable } : data;
 
       // 如果有进度值，启动进度动画
       if (this.data && this.data.progress !== undefined) {
@@ -138,6 +147,8 @@ export class NotificationComponent {
 
   view() {
     console.log('viewDetail');
+    console.log(this.data);
+    this.uiService.openBottomSider('log');
   }
 
   askAI() {

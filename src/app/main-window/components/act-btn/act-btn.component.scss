@@ -4,6 +4,10 @@
     transform: all 0.3s;
     position: relative;
 
+    * {
+        pointer-events: none;
+    }
+
     .default{
         cursor: pointer;
     }
@@ -78,7 +82,8 @@
         }
 
         .fa-exclamation {
-            color: rgb(255, 119, 0);
+            color: #f0b506;
+            font-size: 13px;
         }
     }
 }

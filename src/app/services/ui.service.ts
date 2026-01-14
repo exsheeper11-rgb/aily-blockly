@@ -1,9 +1,14 @@
 /* 这个服务用来控制窗口、工具的显示和隐藏，通过 Subject 来实现组件之间的通信。
  */
 import { Injectable } from '@angular/core';
-import { Subject } from 'rxjs';
+import { filter, Subject } from 'rxjs';
 import { ElectronService } from './electron.service';
 import { TerminalService } from '../tools/terminal/terminal.service';
+import { NavigationEnd, Router } from '@angular/router';
+import { FeedbackDialogComponent } from '../components/feedback-dialog/feedback-dialog.component';
+import { NzModalService } from 'ng-zorro-antd/modal';
+import { ProjectSettingDialogComponent } from '../components/project-setting-dialog/project-setting-dialog.component';
+import { HistoryDialogComponent } from '../editors/blockly-editor/components/history-dialog/history-dialog.component';
 
 @Injectable({
   providedIn: 'root',
@@ -25,17 +30,21 @@ export class UiService {
 
   // 用来记录terminal是否打开
   terminalIsOpen = false;
+  // 当前选中的底部面板tab
+  currentBottomTab = '';
   theme = 'dark';
   isMainWindow = false;
 
 
   constructor(
     private electronService: ElectronService,
-    private terminalService: TerminalService
+    private terminalService: TerminalService,
+    private router: Router,
+    private modal: NzModalService
   ) { }
 
 
-  // 初始化UI服务，这个init函数仅供main-window使用  
+  // 初始化UI服务，这个init函数仅供main-window使用
   init(): void {
     if (this.electronService.isElectron) {
       this.isMainWindow = true;
@@ -46,14 +55,14 @@ export class UiService {
       window['ipcRenderer'].on('window-receive', async (event, message) => {
         console.log('window-receive', message);
         let data;
-        if (message.data.action == 'open-terminal') {
-          data = await this.openTerminal();
-          // console.log('open-terminal', pid);
-        } else if (message.data.action == 'close-terminal') {
-          this.closeTerminal();
-        } else {
-          return;
-        }
+        // if (message.data.action == 'open-terminal') {
+        //   data = await this.openTerminal();
+        //   // console.log('open-terminal', pid);
+        // } else if (message.data.action == 'close-terminal') {
+        //   this.closeTerminal();
+        // } else {
+        //   return;
+        // }
         // 反馈完成结果
         if (message.messageId) {
           window['ipcRenderer'].send('main-window-response', {
@@ -64,6 +73,7 @@ export class UiService {
         }
       });
     }
+
   }
 
   openWindow(opt: WindowOpts) {
@@ -81,10 +91,10 @@ export class UiService {
 
   // 如果其它组件/程序要打开工具，调用这个方法
   openTool(name: string) {
-    if (name == 'terminal') {
-      this.openTerminal();
-      return;
-    }
+    // if (name == 'terminal') {
+    //   this.openTerminal();
+    //   return;
+    // }
     this.openToolList = this.openToolList.filter((e) => e !== name);
     this.openToolList.push(name);
     this.actionSubject.next({ action: 'open', type: 'tool', data: name });
@@ -100,26 +110,57 @@ export class UiService {
     this.actionSubject.next({ action: 'close', type: 'tool', data: name });
   }
 
-  turnTerminal(data) {
-    if (this.terminalIsOpen) {
+  closeToolAll() {
+    this.openToolList.forEach((name) => {
+      this.closeTool(name);
+    });
+    this.openToolList = [];
+  }
+
+  // 判断某个工具是否打开
+  isToolOpen(name: string): boolean {
+    return this.openToolList.includes(name);
+  }
+
+  turnBottomSider(data = 'default') {
+    if (this.terminalIsOpen && this.currentBottomTab === data) {
+      // 如果底部面板已经打开且当前选中的就是要打开的tab，则关闭面板
       this.closeTerminal();
+    } else if (this.terminalIsOpen) {
+      // 如果底部面板已经打开但选中的不是要打开的tab，则切换到指定的tab
+      this.switchBottomSiderTab(data);
     } else {
-      this.openTerminal(data);
+      // 如果底部面板未打开，则打开面板并显示指定的组件
+      this.openBottomSider(data);
     }
   }
 
-  async openTerminal(data = 'default'): Promise<{ pid: number }> {
+  // 切换底部面板的tab
+  switchBottomSiderTab(data: string) {
+    this.currentBottomTab = data;
+    if (this.isMainWindow) {
+      this.actionSubject.next({ action: 'switch-tab', type: 'bottom-sider', data });
+    } else {
+      window['iWindow'].send({ to: 'main', data: { action: 'switch-terminal-tab', tab: data } });
+    }
+  }
+
+  async openBottomSider(data = 'default'): Promise<{ pid: number }> {
     return new Promise(async (resolve, reject) => {
+      this.currentBottomTab = data;
       if (this.isMainWindow) {
-        this.actionSubject.next({ action: 'open', type: 'terminal', data });
+        this.actionSubject.next({ action: 'open', type: 'bottom-sider', data });
         this.terminalIsOpen = true;
-        setTimeout(() => {
-          resolve({ pid: this.terminalService.currentPid });
-        }, 1000);
+        const intervalId = setInterval(() => {
+          if (this.terminalService.currentPid) {
+            clearInterval(intervalId);
+            resolve({ pid: this.terminalService.currentPid });
+          }
+        }, 100);
       } else {
         // 其它窗口调用
         let { pid } = await window['iWindow'].send({ to: 'main', data: { action: 'open-terminal' } });
-        console.log('open-terminal', pid);
+        // console.log('open-terminal', pid);
         resolve({ pid });
       }
     });
@@ -127,20 +168,16 @@ export class UiService {
 
   closeTerminal() {
     if (this.isMainWindow) {
-      this.actionSubject.next({ action: 'close', type: 'terminal' });
+      this.actionSubject.next({ action: 'close', type: 'bottom-sider' });
       this.terminalIsOpen = false;
+      this.currentBottomTab = '';
     } else {
       window['iWindow'].send({ to: 'main', data: { action: 'close-terminal' } });
     }
   }
 
-  // 清空终端
-  clearTerminal() {
-    // this.actionSubject.next({ action: 'clear-terminal' });
-  }
-
   // 更新footer右下角的状态
-  updateState(state: ActionState) {
+  updateFooterState(state: ActionState) {
     // 判断当前url是否是main-window
     if (this.isMainWindow) {
       this.stateSubject.next(state);
@@ -152,6 +189,68 @@ export class UiService {
   // 关闭当前窗口
   closeWindow() {
     window['iWindow'].close();
+  }
+
+
+  openFeedback() {
+    const modalRef = this.modal.create({
+      nzTitle: null,
+      nzFooter: null,
+      nzClosable: false,
+      nzBodyStyle: {
+        padding: '0',
+      },
+      nzContent: FeedbackDialogComponent,
+      nzWidth: '520px',
+    });
+
+    // 处理反馈结果
+    modalRef.afterClose.subscribe(result => {
+      if (result?.result === 'success') {
+        console.log('反馈已提交:', result.data);
+      }
+    });
+  }
+
+  openHistory() {
+    const modalRef = this.modal.create({
+      nzTitle: null,
+      nzFooter: null,
+      nzClosable: false,
+      nzBodyStyle: {
+        padding: '0',
+      },
+      nzContent: HistoryDialogComponent,
+      nzWidth: '520px',
+    });
+
+    // 处理反馈结果
+    // modalRef.afterClose.subscribe(result => {
+    //   if (result?.result === 'success') {
+    //     console.log('反馈已提交:', result.data);
+    //   }
+    // });
+  }
+
+  openProjectSettings() {
+    // 这里参考 USAGE_EXAMPLE.ts 中的代码实现
+    const modalRef = this.modal.create({
+      nzTitle: null,
+      nzFooter: null,
+      nzClosable: false,
+      nzBodyStyle: {
+        padding: '0',
+      },
+      nzContent: ProjectSettingDialogComponent,
+      nzWidth: '520px',
+    });
+
+    // 处理反馈结果
+    modalRef.afterClose.subscribe(result => {
+      if (result?.result === 'success') {
+        console.log('反馈已提交:', result.data);
+      }
+    });
   }
 }
 

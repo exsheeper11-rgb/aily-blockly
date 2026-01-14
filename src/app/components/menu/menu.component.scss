@@ -1,3 +1,7 @@
+.menu-container {
+  position: relative;
+}
+
 .menu-box {
   background: #2b2d30;
   border-radius: 5px;
@@ -9,11 +13,20 @@
   .menu-item {
     padding: 0 10px;
     height: 30px;
+    min-height: 30px; // 保持最小高度,防止被压缩
+    flex-shrink: 0; // 防止flex布局压缩item
     justify-content: flex-start;
     margin: 0 3px;
     border-radius: 5px;
     cursor: pointer;
     color: #ddd;
+    position: relative;
+
+    .name {
+      white-space: nowrap;
+      flex: 1;
+      min-width: 0;
+    }
 
     .icon {
       width: 20px;
@@ -22,14 +35,23 @@
     }
 
     .text {
-      margin-left: 10px;
+      margin-left: auto;
+      padding-left: 10px;
       white-space: nowrap;
       color: #999;
-      flex-shrink: 1;
+      flex-shrink: 0;
     }
 
     &:hover {
       background: #405e8d;
+    }
+
+    &.active{
+      background: #405e8d;
+    }
+
+    &.disabled {
+      background: none;
     }
 
     &.highlight {
@@ -38,8 +60,19 @@
       }
     }
 
-    &.disabled{
+    &.disabled {
       opacity: 0.6;
+    }
+
+    .arrow {
+      position: absolute;
+      right: 10px;
+    }
+
+    .check {
+      position: absolute;
+      right: 5px;
+      color: #f7ce42;
     }
   }
 
@@ -48,4 +81,42 @@
     background: #444;
     margin: 2px 0;
   }
+}
+
+// 独立的子菜单样式
+.submenu-box {
+  min-width: 100px;
+  box-shadow: 0 0 5px #111;
+  z-index: 1000;
+  
+  &.show {
+    display: flex;
+  }
+
+  .name{
+    padding-right: 20px;
+  }
+
+  // 滚动条样式
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: #2b2d30;
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #555;
+    border-radius: 4px;
+    
+    &:hover {
+      background: #666;
+    }
+  }
+
+  // Firefox滚动条样式
+  scrollbar-width: thin;
+  scrollbar-color: #555 #2b2d30;
 }

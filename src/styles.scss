@@ -4,7 +4,30 @@ body {
   margin: 0;
   font-family: "MiSans Regular", "FiraCode Regular" !important;
   overflow: hidden;
-  background: transparent !important;
+  background-color: #2b2d30 !important;
+  user-select: none;
+}
+
+.loading-box {
+  width: 100vw;
+  height: 100vh;
+  background: #2b2d30;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 99;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  border-radius: 5px;
+
+  .text {
+    color: #fff;
+    margin-left: 12px;
+    margin-top: 5px;
+    font-size: 18px;
+  }
 }
 
 .ccenter {
@@ -29,7 +52,31 @@ body {
 
 .ant-modal-content {
   border-radius: 5px !important;
+  box-shadow: none !important;
   background: transparent !important;
+}
+
+nz-modal-container {
+  overflow: hidden !important;
+}
+
+.cdk-overlay-container {
+  z-index: 10000 !important;
+}
+
+.cdk-global-scrollblock {
+  overflow-y: hidden;
+}
+
+nz-option-item {
+  height: 24px !important;
+  min-height: 24px !important;
+  font-size: 12px !important;
+  padding: 2px 8px !important;
+}
+
+nz-option-container {
+  padding: 0 !important;
 }
 
 .btn {
@@ -95,6 +142,10 @@ body {
       transform: rotate(360deg);
     }
   }
+}
+
+nz-sider.nz-resizable-resizing {
+  transition: none;
 }
 
 .blocklyWidgetDiv {

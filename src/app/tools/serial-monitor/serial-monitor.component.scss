@@ -36,7 +36,6 @@
 
 .settings {
   background: #292929;
-  padding: 0 10px;
   margin: 10px;
   border-radius: 5px;
 
@@ -54,27 +53,22 @@
     height: 40px;
     font-size: 12px;
 
-    .text {
+    .title {
+      min-width: 56px;
       padding: 0 10px;
       flex-shrink: 0;
     }
 
-    &:first-child {
-      .text {
-        padding-left: 0;
-      }
-    }
-
     .item-inner {
       height: 24px;
-      width: 100px;
+      width: 90px;
       background-color: #333;
-      // border: 1px solid #d9d9d9;
       border-radius: 2px;
       position: relative;
       display: flex;
       justify-content: flex-start;
       padding-left: 10px;
+      padding-right: 20px;
       color: #eee;
       font-size: 14px;
 
@@ -94,9 +88,18 @@
         }
       }
 
+      .value {
+        pointer-events: none;
+        width: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
       .arrow-box {
+        pointer-events: none;
         position: absolute;
-        right: 10px;
+        right: 8px;
 
         .arrow {
           transition: transform 0.3s;
@@ -110,8 +113,20 @@
   }
 
   .switch {
+    margin-left: 10px;
+  }
+
+  .setting-btn {
     position: absolute;
     right: 0;
+    font-size: 18px;
+    width: 38px;
+    height: 38px;
+    padding-top: 2px;
+
+    &:hover {
+      color: #fff;
+    }
   }
 
   .more {
@@ -130,75 +145,103 @@
   }
 }
 
+.chart-box {
+  // flex: 1;
+  height: 250px;
+  background: #292929;
+  border-radius: 5px;
+  margin: 0 10px 10px 10px;
+  padding: 5px;
+  position: relative;
+
+  // 隐藏 lightweight-charts 的 logo
+  ::ng-deep {
+    #tv-attr-logo,
+    a[href^="https://www.tradingview.com/"] {
+      display: none !important;
+    }
+  }
+}
+
 .monitor {
   position: relative;
   flex: 1;
   min-height: 0;
 
   .r-box {
-    height: calc(100% - 40px);
+    height: calc(100% - 10px);
     background: #292929;
     border-radius: 5px;
     margin: 0 10px;
+    padding: 5px;
+    position: relative;
 
-    ngx-simplebar {
-      height: 100%;
-      width: 100%;
-
-      ::ng-deep {
-        .simplebar-content-wrapper {
-          height: 100%;
-          padding: 10px;
-        }
-
-        .simplebar-content {
-          height: 100%;
-        }
-      }
+    .data-list {
+      height: calc(100% - 28px);
+      overflow-y: auto;
+      position: relative;
     }
   }
 
-  .btns {
-    position: absolute;
-    bottom: 5px;
-    width: 100%;
-    display: flex;
-    height: 30px;
-    padding: 0 10px;
-    margin-top: -5px;
-
-    .right {
-      position: absolute;
-      right: 10px;
-    }
-
-    .right2 {
-      position: absolute;
-      right: 42px;
-    }
-
-    .right3 {
-      position: absolute;
-      right: 74px;
-    }
-  }
 }
 
-.btn {
-  width: 28px;
+.btns {
+  width: 100%;
+  display: flex;
   height: 28px;
-  font-size: 14px;
-  color: #eee;
-  margin-right: 3px;
+  position: relative;
 
-  &:hover {
-    color: #fff;
+  .right {
+    position: absolute;
+    right: 0px;
   }
 
-  &.actived {
-    background: #1c77c8;
-    // color: #eee;
-    border-radius:5px;
+  .right2 {
+    position: absolute;
+    right: 42px;
+  }
+
+  .right3 {
+    position: absolute;
+    right: 74px;
+  }
+
+  .right4 {
+    position: absolute;
+    right: 106px;
+  }
+
+  .right5 {
+    position: absolute;
+    right: 138px;
+  }
+
+  button {
+    height: 28px;
+    line-height: 16px;
+    border-radius: 5px;
+  }
+
+  .btn {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    color: #eee;
+    padding-top: 1px;
+    border-radius: 5px;
+
+    &:hover {
+      color: #fff;
+      background: #3f3f3f;
+    }
+
+    &.actived {
+      color: #4db2ff;
+    }
+
+    i.actived {
+      color: #4db2ff;
+    }
   }
 }
 
@@ -209,42 +252,46 @@
   .s-box {
     width: 100%;
     height: 100%;
-    padding: 10px 10px 5px 10px;
-    position: relative;
+    position: absolute;
+    top: 0;
 
-    textarea {
-      background: #292929;
-      border-radius: 5px;
-      height: calc(100% - 40px);
-      resize: none;
+    .item-setting {
+      height: 24px;
+      position: absolute;
+      right: 0;
+      cursor: pointer;
     }
 
-    .btns {
+    .input-box {
+      // margin: 10px;
+      // padding: 0 10px;
+      // height: calc(100% - 20px);
+      // border-radius: 5px;
+      // position: relative;
+      // background: #292929;
+
       display: flex;
-      justify-content: flex-end;
-      margin-top: 5px;
+      flex-direction: column;
+      height: calc(100% - 70px);
+      margin: 10px;
+      padding: 5px;
+      border-radius: 5px;
       position: relative;
-    }
+      background: #292929;
 
-    .turn {
-      &.on {
-        background: #444;
+      textarea {
+        font-size: 14px;
+        flex-grow: 1;
+        border: none;
+        resize: none;
+        outline: none;
+        padding: 7px 0 0 5px;
+        background: transparent;
+        // width: calc(100% + 10px);
+        // height: calc(100% - 33px);
       }
     }
 
-    .hex {
-      position: absolute;
-      left: 0;
-    }
-
-    .enter {
-      position: absolute;
-      left: 32px;
-    }
-
-    button {
-      margin-left: 10px;
-    }
   }
 }
 
@@ -262,43 +309,7 @@
 nz-resize-handle {
   .line {
     margin-top: 5px;
-    height: 2px;
+    height: 1px;
     background: rgba(255, 255, 255, 0.1);
   }
 }
-
-// .btns {
-//   display: flex;
-//   width: 100%;
-//   background: #555;
-//   color: #eee;
-//   position: absolute;
-//   bottom: 0;
-
-//   .btn {
-//     width: 28px;
-//     height: 28px;
-//     position: relative;
-
-//     &:hover {
-//       color: #fff;
-//     }
-
-//     &.right2 {
-//       position: absolute;
-//       right: 28px;
-//     }
-
-//     &.right {
-//       position: absolute;
-//       right: 0;
-//     }
-
-//     .text {
-//       font-size: 10px;
-//       transform: scale(0.9);
-//       position: absolute;
-//       left: 12px;
-//     }
-//   }
-// }
