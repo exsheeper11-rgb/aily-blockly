@@ -220,14 +220,14 @@ jobs:
             
             echo ""
             echo "=== Issues Summary ==="
-            python3 -c "
+            python3 -c '
 import json
-with open('notarization_log.json') as f:
+with open("notarization_log.json") as f:
     data = json.load(f)
-    for issue in data.get('issues', []):
-        print(f\"[{issue.get('severity')}] {issue.get('message')}\")
-        print(f\"  Path: {issue.get('path')}\")
-" || cat notarization_log.json
+    for issue in data.get("issues", []):
+        print(f"[{issue.get(\"severity\")}] {issue.get(\"message\")}")
+        print(f"  Path: {issue.get(\"path\")}")
+' || cat notarization_log.json
           fi
 
       - name: Staple Notarization Ticket
