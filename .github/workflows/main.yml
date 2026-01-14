@@ -75,50 +75,98 @@ jobs:
           p12-file-base64: ${{ secrets.APPLE_SIGNING_CERT }}
           p12-password: ${{ secrets.APPLE_SIGNING_PASSWORD }}
 
-      - name: Find DMG file
-        id: find_dmg
+      - name: Find DMG and ZIP files
+        id: find_files
         run: |
           DMG_PATH=$(find dist/aily-blockly -name "*.dmg" -type f | head -n 1)
+          ZIP_PATH=$(find dist/aily-blockly -name "*.zip" -type f | head -n 1)
           echo "dmg_path=$DMG_PATH" >> $GITHUB_OUTPUT
+          echo "zip_path=$ZIP_PATH" >> $GITHUB_OUTPUT
           echo "Found DMG at: $DMG_PATH"
+          echo "Found ZIP at: $ZIP_PATH"
 
-      - name: Debug - Check DMG file
+      - name: Debug - Check files
         run: |
-          echo "DMG file: ${{ steps.find_dmg.outputs.dmg_path }}"
-          ls -lh "${{ steps.find_dmg.outputs.dmg_path }}"
-          file "${{ steps.find_dmg.outputs.dmg_path }}"
+          echo "DMG file: ${{ steps.find_files.outputs.dmg_path }}"
+          ls -lh "${{ steps.find_files.outputs.dmg_path }}"
+          echo "ZIP file: ${{ steps.find_files.outputs.zip_path }}"
+          ls -lh "${{ steps.find_files.outputs.zip_path }}"
 
-      - name: Notarize and Staple macOS App
-        id: notarize
-        continue-on-error: true
-        uses: lando/notarize-action@v2
-        with:
-          product-path: "${{ steps.find_dmg.outputs.dmg_path }}"
-          appstore-connect-username: ${{ secrets.APPLE_ID }}
-          appstore-connect-password: ${{ secrets.APPLE_APP_PASSWORD }}
-          appstore-connect-team-id: ${{ secrets.APPLE_TEAM_ID }}
-          primary-bundle-id: "blockly.aily.pro"
-
-      - name: Debug - Notarization Result
+      # Step 1: 提交 DMG 到 Apple 进行公证
+      - name: Submit DMG for Notarization
+        id: notarize_dmg
         run: |
-          echo "Notarization step outcome: ${{ steps.notarize.outcome }}"
-          if [ "${{ steps.notarize.outcome }}" = "failure" ]; then
-            echo "⚠️  Notarization failed, but continuing with artifact upload..."
+          echo "Submitting DMG to Apple for notarization..."
+          xcrun notarytool submit "${{ steps.find_files.outputs.dmg_path }}" \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --wait \
+            --timeout 30m \
+            2>&1 | tee notarize_dmg_output.txt
+          
+          # 检查公证结果
+          if grep -q "status: Accepted" notarize_dmg_output.txt; then
+            echo "dmg_accepted=true" >> $GITHUB_OUTPUT
+            echo "✓ DMG notarization accepted!"
           else
-            echo "✓ Notarization completed successfully"
+            echo "dmg_accepted=false" >> $GITHUB_OUTPUT
+            echo "✗ DMG notarization failed or rejected"
+            cat notarize_dmg_output.txt
           fi
 
-      - name: Verify Notarization
-        continue-on-error: true
+      # Step 2: 提交 ZIP 到 Apple 进行公证
+      - name: Submit ZIP for Notarization
+        id: notarize_zip
         run: |
-          echo "Checking file signature..."
-          codesign -dvv "${{ steps.find_dmg.outputs.dmg_path }}" || echo "File not code-signed"
+          echo "Submitting ZIP to Apple for notarization..."
+          xcrun notarytool submit "${{ steps.find_files.outputs.zip_path }}" \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --wait \
+            --timeout 30m \
+            2>&1 | tee notarize_zip_output.txt
+          
+          # 检查公证结果
+          if grep -q "status: Accepted" notarize_zip_output.txt; then
+            echo "zip_accepted=true" >> $GITHUB_OUTPUT
+            echo "✓ ZIP notarization accepted!"
+          else
+            echo "zip_accepted=false" >> $GITHUB_OUTPUT
+            echo "✗ ZIP notarization failed or rejected"
+            cat notarize_zip_output.txt
+          fi
+
+      # Step 3: 仅在公证通过后才进行 Staple 盖章
+      - name: Staple DMG (only if notarization accepted)
+        if: steps.notarize_dmg.outputs.dmg_accepted == 'true'
+        run: |
+          echo "Stapling notarization ticket to DMG..."
+          xcrun stapler staple "${{ steps.find_files.outputs.dmg_path }}"
+          echo "✓ DMG stapled successfully!"
+
+      # - name: Staple ZIP (only if notarization accepted)
+      #   if: steps.notarize_zip.outputs.zip_accepted == 'true'
+      #   run: |
+      #     echo "Stapling notarization ticket to ZIP..."
+      #     # ZIP 文件本身不能直接 staple，需要解压后 staple .app 再重新打包
+      #     # 如果是 .app 在 ZIP 里，需要特殊处理
+      #     xcrun stapler staple "${{ steps.find_files.outputs.zip_path }}" || echo "ZIP stapling skipped (may need .app extraction)"
+      #     echo "✓ ZIP stapling completed!"
+
+      # Step 4: 验证签名和公证
+      - name: Verify Notarization and Stapling
+        run: |
+          echo "=== Verifying DMG ==="
+          echo "Checking code signature..."
+          codesign -dvv "${{ steps.find_files.outputs.dmg_path }}" || echo "DMG not code-signed"
           echo ""
-          echo "Running spctl verification..."
-          spctl -a -vvv -t install "${{ steps.find_dmg.outputs.dmg_path }}" || echo "spctl verification failed"
+          echo "Checking stapler validation..."
+          xcrun stapler validate "${{ steps.find_files.outputs.dmg_path }}" || echo "DMG stapler validation failed"
           echo ""
-          echo "Running stapler validate..."
-          stapler validate "${{ steps.find_dmg.outputs.dmg_path }}" || echo "Stapler validation failed"
+          echo "Checking spctl (Gatekeeper)..."
+          spctl -a -vvv -t install "${{ steps.find_files.outputs.dmg_path }}" || echo "DMG spctl check failed"
       
       - name: Archive macOS Artifact
         uses: actions/upload-artifact@v4
