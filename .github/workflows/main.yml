@@ -204,7 +204,8 @@ jobs:
 
   # 任务 4：上传文件到服务器（与Release并行执行）
   upload-to-server:
-    needs: [build-windows, build-macos]
+    # needs: [build-windows, build-macos]
+    needs: [build-windows]
     runs-on: ubuntu-latest
     steps:
       - name: Download Windows Artifact
