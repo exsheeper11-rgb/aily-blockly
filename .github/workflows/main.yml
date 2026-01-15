@@ -23,6 +23,7 @@ jobs:
         run: |
           npm install -g @angular/cli
           npm ci
+          npm install rcedit --save-dev
           cd electron && npm ci
 
       - name: Build Angular App
