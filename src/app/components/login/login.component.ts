@@ -33,6 +33,13 @@ export class LoginComponent {
   isWaiting = false;
   inputUsername = '';
   inputPassword = '';
+  
+  // 邮箱登录相关
+  inputEmail = '';
+  inputCode = '';
+  isSendingCode = false;
+  countdown = 0;
+  private countdownTimer: any = null;
 
   constructor(
     private authService: AuthService,
@@ -133,6 +140,111 @@ export class LoginComponent {
       console.error('登录过程中出错:', error);
       this.message.error(this.translate.instant('LOGIN.LOGIN_FAILED'));
       this.isWaiting = false;
+    }
+  }
+
+  /**
+   * 发送邮箱验证码
+   */
+  async sendVerificationCode() {
+    if (!this.inputEmail) {
+      this.message.warning(this.translate.instant('LOGIN.ENTER_EMAIL'));
+      return;
+    }
+
+    // 简单的邮箱格式验证
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(this.inputEmail)) {
+      this.message.warning(this.translate.instant('LOGIN.INVALID_EMAIL'));
+      return;
+    }
+
+    this.isSendingCode = true;
+
+    try {
+      this.authService.sendEmailCode(this.inputEmail).subscribe({
+        next: (response) => {
+          if (response.status === 200) {
+            this.message.success(this.translate.instant('LOGIN.CODE_SENT'));
+            this.startCountdown();
+          } else {
+            this.message.error(response.message || this.translate.instant('LOGIN.CODE_SEND_FAILED'));
+          }
+        },
+        error: (error) => {
+          console.error('发送验证码错误:', error);
+          this.message.error(this.translate.instant('LOGIN.CODE_SEND_FAILED'));
+        },
+        complete: () => {
+          this.isSendingCode = false;
+        }
+      });
+    } catch (error) {
+      console.error('发送验证码过程中出错:', error);
+      this.message.error(this.translate.instant('LOGIN.CODE_SEND_FAILED'));
+      this.isSendingCode = false;
+    }
+  }
+
+  /**
+   * 开始倒计时
+   */
+  private startCountdown() {
+    this.countdown = 60;
+    this.countdownTimer = setInterval(() => {
+      this.countdown--;
+      if (this.countdown <= 0) {
+        clearInterval(this.countdownTimer);
+        this.countdownTimer = null;
+      }
+    }, 1000);
+  }
+
+  /**
+   * 邮箱验证码登录
+   */
+  async loginByEmail() {
+    if (!this.inputEmail) {
+      this.message.warning(this.translate.instant('LOGIN.ENTER_EMAIL'));
+      return;
+    }
+
+    if (!this.inputCode) {
+      this.message.warning(this.translate.instant('LOGIN.ENTER_CODE'));
+      return;
+    }
+
+    this.isWaiting = true;
+
+    try {
+      this.authService.loginByEmail(this.inputEmail, this.inputCode).subscribe({
+        next: (response) => {
+          if (response.status === 200 && response.data) {
+            this.message.success(this.translate.instant('LOGIN.LOGIN_SUCCESS'));
+          } else {
+            this.message.error(response.message || this.translate.instant('LOGIN.LOGIN_FAILED'));
+          }
+        },
+        error: (error) => {
+          console.error('邮箱登录错误:', error);
+          this.message.error(this.translate.instant('LOGIN.LOGIN_NETWORK_ERROR'));
+        },
+        complete: () => {
+          this.isWaiting = false;
+        }
+      });
+    } catch (error) {
+      console.error('邮箱登录过程中出错:', error);
+      this.message.error(this.translate.instant('LOGIN.LOGIN_FAILED'));
+      this.isWaiting = false;
+    }
+  }
+
+  ngOnDestroy() {
+    this.destroy$.next();
+    this.destroy$.complete();
+    if (this.countdownTimer) {
+      clearInterval(this.countdownTimer);
     }
   }
 }
