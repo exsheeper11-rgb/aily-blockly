@@ -45,13 +45,12 @@ jobs:
 
       # ================== SignPath 集成开始 ==================
       
-      - name: Get Installer Path
-        id: get_installer
-        shell: pwsh
-        run: |
-          $installer = Get-ChildItem -Path "dist/aily-blockly/*.exe" | Select-Object -First 1
-          if ($null -eq $installer) { Write-Error "No exe found"; exit 1 }
-          echo "path=$($installer.FullName)" >> $env:GITHUB_OUTPUT
+      - name: Upload Unsigned Installer for Signing
+        id: upload_unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-installer
+          path: dist/aily-blockly/*.exe
 
       - name: Sign Installer with SignPath
         uses: signpath/github-action-submit-signing-request@v1
@@ -60,8 +59,9 @@ jobs:
           organization-id: 'bd01a768-a9e3-4a62-945d-fcfdc37a299e'
           project-slug: 'aily-blockly' 
           signing-policy-slug: 'test-signing'
-          artifact-file: '${{ steps.get_installer.outputs.path }}'
+          github-artifact-id: '${{ steps.upload_unsigned.outputs.artifact-id }}'
           wait-for-completion: true
+          output-artifact-directory: 'dist/aily-blockly'
 
       # ================== SignPath 集成结束 ==================
 
