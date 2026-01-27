@@ -7,8 +7,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # 任务 1：Windows 客户端构建 (新增，用于向 SignPath 证明构建能力)
-  jobs:
   # 任务 1：Windows 客户端构建
   build-windows:
     runs-on: windows-latest

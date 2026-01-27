@@ -50,7 +50,7 @@
     ],
     "win": {
       "target": "nsis",
-      "sign": false,
+      "sign": true,
       "signAndEditExecutable": true,
       "artifactName": "aily-blockly-${version}.${ext}",
       "icon": "public/icon.ico",
