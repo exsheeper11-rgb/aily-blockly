@@ -1,6 +1,9 @@
 import { Component, OnInit } from '@angular/core';
 import { ProjectService } from '../../../../services/project.service';
 import { ElectronService } from '../../../../services/electron.service';
+import { BuilderService } from '../../../../services/builder.service';
+import { ActionService } from '../../../../services/action.service';
+import { WorkflowService, ProcessState } from '../../../../services/workflow.service';
 import { NzMessageService } from 'ng-zorro-antd/message';
 import { FormsModule } from '@angular/forms';
 import { ConfigService } from '../../../../services/config.service';
@@ -49,7 +52,10 @@ export class DevToolComponent implements OnInit {
     private projectService: ProjectService,
     private electronService: ElectronService,
     private messageService: NzMessageService,
-    private configService: ConfigService
+    private configService: ConfigService,
+    private builderService: BuilderService,
+    private actionService: ActionService,
+    private workflowService: WorkflowService
   ) {
 
   }
@@ -128,18 +134,40 @@ export class DevToolComponent implements OnInit {
   }
 
   async clear() {
-    try {
-      const defaultBuildPath = await this.projectService.getBuildPath();
+    // 检查是否正在编译或上传，如果是则禁止清除缓存
+    const currentState = this.workflowService.currentState;
+    if (currentState === ProcessState.BUILDING || currentState === ProcessState.UPLOADING) {
+      this.messageService.warning('Cannot clear cache while compiling or uploading');
+      return;
+    }
 
-      // console.log(defaultBuildPath);
+    try {
+      // 先停止预编译进程，避免删除文件时发生冲突
+      await new Promise<void>((resolve) => {
+        this.actionService.dispatch('preprocess-stop', {}, (feedback) => {
+          if (feedback.success) {
+            console.log('预编译进程已停止');
+          }
+          resolve();
+        }, 3000);
+      });
+
+      const defaultBuildPath = await this.projectService.getBuildPath();
+  
       // 检查目录是否存在
-      if (!window['fs'].existsSync(defaultBuildPath)) {
-        this.messageService.info('Build folder does not exist');
-        return;
+      if (window['fs'].existsSync(defaultBuildPath)) {
+        // 删除buildPath目录
+        console.log('Deleting build folder:', defaultBuildPath);
+        this.electronService.deleteDir(defaultBuildPath);
       }
 
-      // 删除buildPath目录
-      this.electronService.deleteDir(defaultBuildPath);
+      // 检查.temp目录是否存在
+      const tempDirPath = this.electronService.pathJoin(this.projectService.currentProjectPath, '.temp');
+      if (this.electronService.exists(tempDirPath)) {
+        console.log('Deleting .temp directory:', tempDirPath);
+        this.electronService.deleteDir(tempDirPath);
+      }
+
       this.messageService.success('Clear build folder success');
     } catch (error) {
       if (error.message && error.message.includes('EBUSY')) {

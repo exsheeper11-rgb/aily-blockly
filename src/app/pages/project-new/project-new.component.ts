@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { ChangeDetectorRef, Component } from '@angular/core';
 import { CommonModule, Location } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NzButtonModule } from 'ng-zorro-antd/button';
@@ -17,6 +17,7 @@ import { BrandListComponent } from './components/brand-list/brand-list.component
 import { BRAND_LIST, CORE_LIST } from '../../configs/board.config';
 import { PlatformService } from '../../services/platform.service';
 import { NzRadioModule } from 'ng-zorro-antd/radio';
+import { CloudService } from '../../tools/cloud-space/services/cloud.service';
 
 @Component({
   selector: 'app-project-new',
@@ -90,6 +91,8 @@ export class ProjectNewComponent {
     private configService: ConfigService,
     private npmService: NpmService,
     private platformService: PlatformService,
+    private cloudService: CloudService,
+    private cd: ChangeDetectorRef
   ) { }
 
   async ngOnInit() {
@@ -110,12 +113,11 @@ export class ProjectNewComponent {
     this._boardList = this.configService.sortBoardsByUsage(processedBoardList);
 
     this.boardList = JSON.parse(JSON.stringify(this._boardList));
-    this.currentBoard = this.boardList[0];
 
-    this.newProjectData.board.nickname = this.currentBoard.nickname;
-    this.newProjectData.board.name = this.currentBoard.name;
-    this.newProjectData.board.version = this.currentBoard.version;
-    this.newProjectData.devmode = this.currentBoard.mode ? this.currentBoard.mode[0] : 'Arduino';
+    // 使用 selectBoard 方法来初始化，确保触发 checkHasExamples
+    if (this.boardList.length > 0) {
+      this.selectBoard(this.boardList[0]);
+    }
     this.newProjectData.name = this.projectService.generateUniqueProjectName(this.newProjectData.path, 'project_');
   }
 
@@ -142,13 +144,25 @@ export class ProjectNewComponent {
   }
 
   devmodes = [];
+  hasExamples = false;
   selectBoard(boardInfo: BoardInfo) {
     this.currentBoard = boardInfo;
     this.newProjectData.board.name = boardInfo.name;
     this.newProjectData.board.nickname = boardInfo.nickname;
     this.newProjectData.board.version = boardInfo.version;
     this.newProjectData.devmode = boardInfo.mode ? this.currentBoard.mode[0] : 'arduino';
-    this.devmodes = boardInfo.mode
+    this.devmodes = boardInfo.mode;
+    this.checkHasExamples(boardInfo.name);
+  }
+
+  checkHasExamples(boardName: string) {
+    this.hasExamples = false;
+    this.cloudService.getPublicProjects(1, 1, '', '', boardName).subscribe(res => {
+      if (res && res.status === 200 && res.data && res.data.total > 0) {
+        this.hasExamples = true;
+        this.cd.detectChanges();
+      }
+    });
   }
 
   // 可用版本列表
@@ -341,6 +355,11 @@ export class ProjectNewComponent {
         this.selectBoard(this.boardList[0]);
       }
     }
+  }
+
+  nextStepFromProjectHub() {
+    this.router.navigate(['main', 'playground', 'list'], { queryParams: { board: this.currentBoard.name } })
+    // this.router.navigate(['/main/playground']);
   }
 }
 
