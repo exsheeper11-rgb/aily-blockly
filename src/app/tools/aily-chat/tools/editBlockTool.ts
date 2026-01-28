@@ -1348,12 +1348,12 @@ function configureBlockFields(block: any, fields: FieldConfig): {
                 });
               }
               
-              // console.log(`🔍 "${actualValue}" 不是有效的变量ID，当作变量名处理...`);
+              console.log(`🔍 "${actualValue}" 不是有效的变量ID，当作变量名处理...`);
               
               let variableType: string | undefined = undefined;
               if (typeof value === 'object' && value !== null && (value as any).type) {
                 variableType = (value as any).type;
-                // console.log(`🔍 从字段配置提取变量类型: ${variableType}`);
+                console.log(`🔍 从字段配置提取变量类型: ${variableType}`);
               }
               
               // 🔧 启用自动创建变量（保持向后兼容）
@@ -1362,7 +1362,7 @@ function configureBlockFields(block: any, fields: FieldConfig): {
             
             if (finalVariableId) {
               block.setFieldValue(finalVariableId, fieldName);
-              // console.log(`✅ 变量字段设置成功: ${fieldName} = ${finalVariableId} (原始值: ${actualValue})`);
+              console.log(`✅ 变量字段设置成功: ${fieldName} = ${finalVariableId} (原始值: ${actualValue})`);
               configSuccess = true;
             } else {
               console.warn(`⚠️ 变量字段处理失败，使用原值: ${fieldName} = ${actualValue}`);
@@ -1371,7 +1371,7 @@ function configureBlockFields(block: any, fields: FieldConfig): {
             
           } else if (fieldTypeInfo.fieldType && fieldTypeInfo.fieldType.includes('Dropdown')) {
             // 📋 下拉菜单字段：智能设置选项值（支持大小写不敏感匹配）
-            // console.log(`📋 检测到下拉菜单字段 (${fieldTypeInfo.fieldType})，设置选项: ${fieldName} = ${actualValue}`);
+            console.log(`📋 检测到下拉菜单字段 (${fieldTypeInfo.fieldType})，设置选项: ${fieldName} = ${actualValue}`);
             
             // 先获取字段和可用选项
             const field = block.getField(fieldName);
@@ -1394,7 +1394,7 @@ function configureBlockFields(block: any, fields: FieldConfig): {
               try {
                 const options = field.getOptions();
                 availableOptions = options.map((opt: any) => opt[1] || opt[0]);
-                // console.log(`🔍 下拉菜单可用选项:`, availableOptions);
+                console.log(`🔍 下拉菜单可用选项:`, availableOptions);
                 
                 // 1. 首先尝试精确匹配
                 for (const option of options) {
@@ -1413,7 +1413,7 @@ function configureBlockFields(block: any, fields: FieldConfig): {
                     const optionValue = option[1] || option[0];
                     if (typeof optionValue === 'string' && optionValue.toLowerCase() === actualValueLower) {
                       matchedOption = optionValue;
-                      // console.log(`🔄 大小写不敏感匹配: "${actualValue}" -> "${matchedOption}"`);
+                      console.log(`🔄 大小写不敏感匹配: "${actualValue}" -> "${matchedOption}"`);
                       break;
                     }
                   }
@@ -1427,7 +1427,7 @@ function configureBlockFields(block: any, fields: FieldConfig): {
                     const optionValue = option[1] || option[0];
                     if (typeof displayText === 'string' && displayText.toLowerCase() === actualValueLower) {
                       matchedOption = optionValue;
-                      // console.log(`🔄 显示文本匹配: "${actualValue}" (显示) -> "${matchedOption}" (值)`);
+                      console.log(`🔄 显示文本匹配: "${actualValue}" (显示) -> "${matchedOption}" (值)`);
                       break;
                     }
                   }
@@ -1445,10 +1445,10 @@ function configureBlockFields(block: any, fields: FieldConfig): {
                 // 🔑 关键：验证设置是否成功
                 const actualFieldValue = block.getFieldValue(fieldName);
                 if (actualFieldValue === matchedOption) {
-                  // console.log(`✅ 下拉菜单设置成功: ${fieldName} = ${matchedOption}`);
+                  console.log(`✅ 下拉菜单设置成功: ${fieldName} = ${matchedOption}`);
                   configSuccess = true;
                 } else {
-                  // console.error(`❌ 下拉菜单设置验证失败: 期望 "${matchedOption}"，实际 "${actualFieldValue}"`);
+                  console.error(`❌ 下拉菜单设置验证失败: 期望 "${matchedOption}"，实际 "${actualFieldValue}"`);
                   failedFields.push({
                     fieldName,
                     value: actualValue,
@@ -1458,7 +1458,7 @@ function configureBlockFields(block: any, fields: FieldConfig): {
                 }
               } catch (setError: any) {
                 const errorMsg = setError?.message || String(setError);
-                // console.error(`❌ 下拉菜单设置异常: ${errorMsg}`);
+                console.error(`❌ 下拉菜单设置异常: ${errorMsg}`);
                 failedFields.push({
                   fieldName,
                   value: actualValue,
@@ -1469,7 +1469,7 @@ function configureBlockFields(block: any, fields: FieldConfig): {
             } else {
               // 没有找到匹配的选项
               const suggestion = `下拉菜单 "${fieldName}" 的值 "${actualValue}" 不是有效选项。可用选项: [${availableOptions.join(', ')}]`;
-              // console.error(`❌ ${suggestion}`);
+              console.error(`❌ ${suggestion}`);
               failedFields.push({
                 fieldName,
                 value: actualValue,
@@ -1479,14 +1479,14 @@ function configureBlockFields(block: any, fields: FieldConfig): {
             }
           } else {
             // 📋 常规字段：直接设置值
-            // console.log(`📋 常规字段处理: ${fieldName} = ${actualValue} (类型: ${fieldTypeInfo.fieldType || '未知'})`);
+            console.log(`📋 常规字段处理: ${fieldName} = ${actualValue} (类型: ${fieldTypeInfo.fieldType || '未知'})`);
             try {
               block.setFieldValue(actualValue, fieldName);
-              // console.log(`✅ 字段设置成功: ${fieldName} = ${actualValue}`);
+              console.log(`✅ 字段设置成功: ${fieldName} = ${actualValue}`);
               configSuccess = true;
             } catch (setFieldError: any) {
               const errorMsg = setFieldError?.message || String(setFieldError);
-              // console.error(`❌ 常规字段设置失败: ${fieldName}`, setFieldError);
+              console.error(`❌ 常规字段设置失败: ${fieldName}`, setFieldError);
               failedFields.push({
                 fieldName,
                 value: actualValue,
@@ -6863,10 +6863,21 @@ function generateTreeStructure(rootBlocks: any[], allBlocks: any[], groupBy: str
   rootBlocks.forEach((rootBlock, index) => {
     // 格式: 结构 1: type [block-id] @(x,y) {field1:value1, field2:value2}
     const blockInfo = formatBlockInfo(rootBlock);
-    lines.push(`结构 ${index + 1}: ${blockInfo}`);
+    lines.push(`结构 ${index + 1}:\n${blockInfo}`);
     
-    // 递归显示结构 - 使用简化格式，支持复杂多层嵌套
-    displayBlockStructureRecursiveSimple(rootBlock, allBlocks, lines, 1, new Set(), '');
+    // 🔧 修复：先显示根块的输入，然后处理根块的 next 链
+    // 这样可以正确显示独立结构中通过 next 连接的所有块
+    displayBlockInputsOnly(rootBlock, allBlocks, lines, 1, new Set(), '');
+    
+    // 🆕 处理根块的 next 连接（形成块链的情况）
+    if (rootBlock.nextBlock) {
+      const nextBlockData = allBlocks.find(b => b.id === rootBlock.nextBlock.id);
+      if (nextBlockData) {
+        // 显示后续块链，使用与根块同层级的方式
+        displayRootBlockChain(nextBlockData, allBlocks, lines, 1, new Set([rootBlock.id]), '');
+      }
+    }
+    
     lines.push('');
   });
 
@@ -7248,6 +7259,48 @@ function displayBlockInputsOnly(
   });
 }
 
+/**
+ * 🆕 显示根块的 next 链 - 处理独立结构中通过 next 连接的块
+ * 与 displayStatementChain 类似，但用于根级块链
+ */
+function displayRootBlockChain(
+  firstBlock: any,
+  allBlocks: any[],
+  lines: string[],
+  level: number,
+  visited: Set<string>,
+  parentPrefix: string
+): void {
+  // 收集整条块链
+  const chainBlocks: any[] = [];
+  let currentBlock = firstBlock;
+  
+  while (currentBlock && !visited.has(currentBlock.id)) {
+    chainBlocks.push(currentBlock);
+    visited.add(currentBlock.id);
+    
+    // 查找 next 块
+    if (currentBlock.nextBlock) {
+      currentBlock = allBlocks.find(b => b.id === currentBlock.nextBlock.id);
+    } else {
+      currentBlock = null;
+    }
+  }
+  
+  // 显示块链中的每个块（与根块同级，使用 ├── 连接）
+  chainBlocks.forEach((block, index) => {
+    const isLast = index === chainBlocks.length - 1;
+    const currentPrefix = isLast ? '└── ' : '├── ';
+    
+    const blockInfo = formatBlockInfo(block);
+    lines.push(`${parentPrefix}${currentPrefix}${blockInfo}`);
+    
+    // 显示当前块的输入
+    const blockPrefix = parentPrefix + (isLast ? '    ' : '│   ');
+    displayBlockInputsOnly(block, allBlocks, lines, level + 1, new Set(visited), blockPrefix);
+  });
+}
+
 // 辅助函数：递归显示块结构 - 保持原版本兼容性
 function displayBlockStructureRecursive(
   block: any, 
@@ -7329,7 +7382,7 @@ function formatWorkspaceOverviewText(
   lines.push(`  • 独立结构数: ${statistics.independentStructures}`);
   lines.push(`  • 最大嵌套深度: ${statistics.maxDepth}`);
   lines.push(`  • 已连接块数: ${statistics.connectedBlocks}`);
-  lines.push(`  • 孤立块数: ${statistics.isolatedBlocks}；注意：某些声明块（如变量声明）作为孤立块时表示其为全局变量，这是允许的。`);
+  lines.push(`  • 孤立块数: ${statistics.isolatedBlocks}`);
   lines.push(`  • 变量数量: ${statistics.variableCount || 0}`);
   
   // 🎯 新增：动态输入块统计信息
@@ -7349,8 +7402,9 @@ function formatWorkspaceOverviewText(
   
   lines.push('');
   
-  if (statistics.totalBlocks > 2 || statistics.isolatedBlocks > 0) {
-    lines.push(`⚠️ 注意: 工作区包含较多块或孤立块，建议检查结构完整性，如果有需要请优化设计以提升代码质量`);
+  if (statistics.independentStructures > 2 || statistics.isolatedBlocks > 0) {
+    lines.push(`⚠️ 注意: 工作区包含较多孤立结构或孤立块，建议检查结构完整性，如果有需要请优化设计以提升代码质量`);
+    lines.push('全局变量需要作为独立块/结构进行管理和维护，确保变量的正确使用和生命周期管理。');
     lines.push('');
   }
   
@@ -7416,6 +7470,15 @@ function formatWorkspaceOverviewText(
         }
       } else {
         lines.push('  ❌ 发现语法问题:');
+        // lines.push('【修复原则】⚠️**严禁随意删除代码块，必须严格遵守以下原则**：');
+        // lines.push('- 诊断优先：先完整分析代码逻辑和块结构，定位具体问题');
+        // lines.push('  · 读取对应库readme和文档');
+        // lines.push('- 最小改动：精确修复，保持结构稳定');
+        // lines.push('- 分级处理：');
+        // lines.push('  · 简单问题（缺块/块错误/连接错误） → 分析根本原因→ 新建块或使用connect_blocks_tool连接');
+        // lines.push('  · 复杂问题 → 分析根本原因 → 新建/配置块 → 连接 → 检查反馈 → 循环修复（3次失败后才可删除）');
+        // lines.push('- 孤立块处理：优先用连接工具修复，仅在无法修复且不再使用时才删除');
+        // lines.push('- 禁止使用文件操作工具编辑代码块');
         
         // 显示错误数量统计
         const errorCount = structure.lintResult.errors ? structure.lintResult.errors.length : 0;
