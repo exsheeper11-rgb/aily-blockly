@@ -145,8 +145,8 @@ export class AuthService {
   /**
    * 发送邮箱验证码
    */
-  sendEmailCode(email: string): Observable<CommonResponse> {
-    return this.http.post<CommonResponse>(API.sendEmailCode, { email, device_id: 'pc' }).pipe(
+  sendEmailCode(email: string, altcha: string): Observable<CommonResponse> {
+    return this.http.post<CommonResponse>(API.sendEmailCode, { email, altcha, device_id: 'pc' }).pipe(
       catchError(this.handleError)
     );
   }

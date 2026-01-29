@@ -193,10 +193,15 @@ export class LoginComponent {
       return;
     }
 
+    const altchaToken = await this.verifyAltcha();
+    if (altchaToken === null) {
+      return;
+    }
+
     this.isSendingCode = true;
 
     try {
-      this.authService.sendEmailCode(this.inputEmail).subscribe({
+      this.authService.sendEmailCode(this.inputEmail, altchaToken).subscribe({
         next: (response) => {
           if (response.status === 200) {
             this.message.success(this.translate.instant('LOGIN.CODE_SENT'));
