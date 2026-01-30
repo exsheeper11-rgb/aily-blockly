@@ -122,6 +122,10 @@
         }
     },
     "BLOCKLY": {
+        "CROSS_TAB_COPY": "复制到指定位置",
+        "CONTROLS_SWITCH_CASE": "情况",
+        "CONTROLS_SWITCH_DO": "执行",
+        "CONTROLS_SWITCH_DEFAULT": "默认执行",
         "ONBOARDING": {
             "TOOLBOX_TITLE": "积木工具箱",
             "TOOLBOX_DESC": "这里是积木分类区域，点击不同的分类可以找到各种功能积木块，拖拽到右边工作区使用。",

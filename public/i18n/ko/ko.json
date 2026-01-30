@@ -86,6 +86,12 @@
             "STEP7_DESC": "질문이 있으신가요? 작품을 공유하고 싶으신가요? 사용자 커뮤니티에 가입하여 다른 메이커들과 교류하고 배우세요!"
         }
     },
+    "BLOCKLY": {
+        "CROSS_TAB_COPY": "지정된 위치에 복사",
+        "CONTROLS_SWITCH_CASE": "조건",
+        "CONTROLS_SWITCH_DO": "실행",
+        "CONTROLS_SWITCH_DEFAULT": "기본"
+    },
     "APP_STORE": {
         "HEADER_INFO": "처음 {{count}}개의 앱이 도구 모음에 표시됩니다",
         "RESET": "초기화",

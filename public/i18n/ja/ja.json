@@ -86,6 +86,12 @@
             "STEP7_DESC": "質問がありますか？作品を共有したいですか？ユーザーコミュニティに参加して、他のメーカーと交流・学習しましょう！"
         }
     },
+    "BLOCKLY": {
+        "CROSS_TAB_COPY": "指定の場所にコピー",
+        "CONTROLS_SWITCH_CASE": "ケース",
+        "CONTROLS_SWITCH_DO": "実行",
+        "CONTROLS_SWITCH_DEFAULT": "デフォルト"
+    },
     "APP_STORE": {
         "HEADER_INFO": "最初の {{count}} 個のアプリがツールバーに表示されます",
         "RESET": "リセット",

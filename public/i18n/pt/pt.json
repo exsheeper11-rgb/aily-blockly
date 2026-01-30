@@ -86,6 +86,12 @@
             "STEP7_DESC": "Tem perguntas? Quer compartilhar seu trabalho? Junte-se à nossa comunidade de usuários para conectar e aprender com outros makers!"
         }
     },
+    "BLOCKLY": {
+        "CROSS_TAB_COPY": "Copiar para local especificado",
+        "CONTROLS_SWITCH_CASE": "caso",
+        "CONTROLS_SWITCH_DO": "fazer",
+        "CONTROLS_SWITCH_DEFAULT": "padrão"
+    },
     "APP_STORE": {
         "HEADER_INFO": "Os primeiros {{count}} aplicativos serão mostrados na barra de ferramentas",
         "RESET": "Redefinir",

@@ -123,6 +123,10 @@
         }
     },
     "BLOCKLY": {
+        "CROSS_TAB_COPY": "Copy to specified location",
+        "CONTROLS_SWITCH_CASE": "case",
+        "CONTROLS_SWITCH_DO": "do",
+        "CONTROLS_SWITCH_DEFAULT": "default",
         "ONBOARDING": {
             "TOOLBOX_TITLE": "Block Toolbox",
             "TOOLBOX_DESC": "Find all available blocks here. Drag and drop blocks to the workspace to build your program.",
