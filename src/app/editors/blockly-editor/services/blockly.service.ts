@@ -113,6 +113,9 @@ export class BlocklyService {
         if (this.electronService.exists(i18nFilePath)) {
           i18nData = JSON.parse(this.electronService.readFile(i18nFilePath));
           blocks = processI18n(blocks, i18nData);
+          // 将 i18n 数据按库名存储到全局，供动态扩展使用
+          (window as any).__BLOCKLY_LIB_I18N__ = (window as any).__BLOCKLY_LIB_I18N__ || {};
+          (window as any).__BLOCKLY_LIB_I18N__[libPackageName] = i18nData;
         }
         // 替换block中静态图片路径
         const staticFileIsExist = this.electronService.exists(this.electronService.pathJoin(libPackagePath, 'static'));
