@@ -1468,6 +1468,11 @@ Do not create non-existent boards and libraries.
     if (!this.mcpInitialized) {
       this.mcpInitialized = true;
       await this.mcpService.init();
+      
+      // 延迟加载硬件索引数据（用于 AI 工具的开发板/库搜索）
+      this.configService.loadHardwareIndexForAI().catch(err => {
+        console.warn('[AilyChat] 加载硬件索引失败:', err);
+      });
     }
 
     // tools + mcp tools
