@@ -2234,7 +2234,11 @@ ${JSON.stringify(errData)}
                     toolResult = await editFileTool(toolArgs);
                     if (toolResult?.is_error) {
                       resultState = "warn";
-                      resultText = `编辑${editFileName}文件异常, 即将重试`;
+                      if (editFileName === 'project.abs') {
+                        resultText = `编辑 项目文件 异常, 即将重试`;
+                      } else {
+                        resultText = `编辑${editFileName}文件异常, 即将重试`;
+                      }
                     } else {
                       if (editFileName === 'project.abs') {
                         resultText = `编辑 项目文件 成功`;
@@ -2899,17 +2903,17 @@ ${JSON.stringify(errData)}
                   //   break;
                   case 'sync_abs_file':
                     if (toolArgs.operation === 'import') {
-                      this.startToolCall(toolCallId, data.tool_name, "正在加载图形化代码...", toolArgs);
+                      this.startToolCall(toolCallId, data.tool_name, "加载 图形化代码...", toolArgs);
                     }
                     // this.startToolCall(toolCallId, data.tool_name, `同步 ABS 文件 (${toolArgs.operation})...`, toolArgs);
                     toolResult = await syncAbsFileHandler(toolArgs, this.projectService, this.electronService, this.absAutoSyncService);
                     if (toolResult?.is_error) {
                       resultState = "warn";
-                      resultText = 'ABS 文件同步失败';
+                      resultText = '项目文件 同步失败';
                     } else {
                       const op = toolArgs.operation;
                       // export 时不显示状态
-                      resultText = op === 'import' ? '加载图形化代码完成' 
+                      resultText = op === 'import' ? '加载 图形化代码 完成' 
                         // : op === 'status' ? 'ABS 状态查询完成'
                         : '';  // status 与 export 不显示
                     }
