@@ -1841,6 +1841,7 @@ ${JSON.stringify(errData)}
 }
 \`\`\`\n\n
 `);
+              newConnect = true;
             }
           } else if (data.type === 'error') {
             // 设置最后一条AI消息状态为done（如果存在）

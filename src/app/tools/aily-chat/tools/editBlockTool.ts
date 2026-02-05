@@ -4780,6 +4780,16 @@ export async function createBlockFromConfig(
     // console.log(`✅ 块创建成功: ${config.type} (ID: ${block.id})`);
     let totalBlocks = 1;
     
+    // 🆕 设置根块（arduino_setup, arduino_loop）不可删除
+    // 这些块是程序的基本结构，不应被用户删除
+    if (config.type === 'arduino_setup' || config.type === 'arduino_loop' || 
+      config.type === 'arduino_global') {
+      if (block.setDeletable && typeof block.setDeletable === 'function') {
+        block.setDeletable(false);
+        // console.log(`🔒 设置 ${config.type} 不可删除`);
+      }
+    }
+    
     // 🗂️ 如果提供了blockMap且块配置有预设ID，将块添加到映射表中
     if (blockMap && config.id) {
       blockMap.set(config.id, block);
@@ -7757,7 +7767,7 @@ function formatWorkspaceOverviewText(
   const lines: string[] = [];
   
   // console.log('==========================🌍 工作区完整概览==========================');
-  lines.push('<keyInfon>请确保生成的代码逻辑正确，符合用户需求，逻辑正确性高于语法正确性。主动分析边界条件和异常情况，确保代码健壮性。</keyInfon>');
+  // lines.push('<keyInfon>请确保生成的代码逻辑正确，符合用户需求，逻辑正确性高于语法正确性。主动分析边界条件和异常情况，确保代码健壮性。</keyInfon>');
   lines.push('🌍 工作区完整概览');
   lines.push('='.repeat(50));
   lines.push('');
@@ -7788,21 +7798,21 @@ function formatWorkspaceOverviewText(
   
   lines.push('');
   
-  if (statistics.independentStructures > 2 || statistics.isolatedBlocks > 0) {
-    lines.push(`⚠️ 注意: 工作区包含较多孤立结构或孤立块，建议检查结构完整性，如果有需要请优化设计以提升代码质量`);
-    lines.push('全局变量需要作为独立块/结构进行管理和维护，确保变量的正确使用和生命周期管理。');
-    lines.push('');
-  }
+  // if (statistics.independentStructures > 2 || statistics.isolatedBlocks > 0) {
+  //   lines.push(`⚠️ 注意: 工作区包含较多孤立结构或孤立块，建议检查结构完整性，如果有需要请优化设计以提升代码质量`);
+  //   lines.push('全局变量需要作为独立块/结构进行管理和维护，确保变量的正确使用和生命周期管理。');
+  //   lines.push('');
+  // }
   
-  // 变量信息
-  if (structure.variables && structure.variables.length > 0) {
-    lines.push('📝 变量列表:');
-    lines.push('  名称 (类型) [ID]');
-    structure.variables.forEach((variable: any) => {
-      lines.push(`  • ${variable.name} (${variable.type}) [${variable.id}]`);
-    });
-    lines.push('');
-  }
+  // // 变量信息
+  // if (structure.variables && structure.variables.length > 0) {
+  //   lines.push('📝 变量列表:');
+  //   lines.push('  名称 (类型) [ID]');
+  //   structure.variables.forEach((variable: any) => {
+  //     lines.push(`  • ${variable.name} (${variable.type}) [${variable.id}]`);
+  //   });
+  //   lines.push('');
+  // }
   
   // 🔇 块类型分布已被 DSL 替代，暂时注释掉
   // lines.push('📈 块类型分布:');

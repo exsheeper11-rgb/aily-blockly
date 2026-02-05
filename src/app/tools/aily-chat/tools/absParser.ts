@@ -316,7 +316,10 @@ export class BlocklyAbsParser {
    */
   parse(code: string): AbsParseResult {
     this.reset();
-    this.lines = code.split('\n');
+    
+    // 预处理：合并跨行的括号内容
+    const preprocessedCode = this.mergeMultilineParentheses(code);
+    this.lines = preprocessedCode.split('\n');
     
     // 自动检测缩进大小
     this.detectIndentSize();
@@ -380,6 +383,87 @@ export class BlocklyAbsParser {
     this.variables = [];
     this.errors = [];
     this.warnings = [];
+  }
+  
+  /**
+   * 预处理：合并跨行的括号内容
+   * 
+   * 当一个块调用跨越多行时（括号未闭合），将其合并成单行。
+   * 例如:
+   * ```
+   * logic_operation(AND,
+   *     logic_compare(EQ, $a, math_number(1)),
+   *     logic_compare(EQ, $b, math_number(2)))
+   * ```
+   * 合并为:
+   * ```
+   * logic_operation(AND, logic_compare(EQ, $a, math_number(1)), logic_compare(EQ, $b, math_number(2)))
+   * ```
+   */
+  private mergeMultilineParentheses(code: string): string {
+    const lines = code.split('\n');
+    const result: string[] = [];
+    let pendingLine = '';
+    let parenDepth = 0;
+    let baseIndent = '';
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      
+      // 跳过空行和注释（但如果在括号内，需要继续）
+      if (parenDepth === 0 && (!trimmed || trimmed.startsWith('#'))) {
+        result.push(line);
+        continue;
+      }
+      
+      // 如果当前没有待合并的行
+      if (parenDepth === 0) {
+        // 计算括号深度
+        const openCount = (line.match(/\(/g) || []).length;
+        const closeCount = (line.match(/\)/g) || []).length;
+        parenDepth = openCount - closeCount;
+        
+        if (parenDepth > 0) {
+          // 括号未闭合，开始收集
+          pendingLine = line;
+          // 保存基础缩进
+          const indentMatch = line.match(/^(\s*)/);
+          baseIndent = indentMatch ? indentMatch[1] : '';
+        } else {
+          // 括号已闭合，直接添加
+          result.push(line);
+        }
+      } else {
+        // 在括号内，继续收集
+        // 更新括号深度
+        const openCount = (trimmed.match(/\(/g) || []).length;
+        const closeCount = (trimmed.match(/\)/g) || []).length;
+        parenDepth += openCount - closeCount;
+        
+        // 合并到待处理行（用空格连接，去掉额外的缩进）
+        pendingLine += ' ' + trimmed;
+        
+        // 如果括号已闭合
+        if (parenDepth <= 0) {
+          result.push(pendingLine);
+          pendingLine = '';
+          parenDepth = 0;
+          baseIndent = '';
+        }
+      }
+    }
+    
+    // 如果还有未完成的行（括号未闭合）
+    if (pendingLine) {
+      result.push(pendingLine);
+      this.warnings.push({
+        line: lines.length,
+        message: '括号未正确闭合，可能导致解析错误'
+      });
+    }
+    
+    return result.join('\n');
   }
   
   /**
