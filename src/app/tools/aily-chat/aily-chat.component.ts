@@ -3326,6 +3326,12 @@ ${JSON.stringify(errData)}
                 newProject = false;
                 // Blockly 工具失败时：同时包含 keyInfo 和 rules
                 // toolContent += `\n${keyInfo}\n
+// 【ABS编写规范】
+// - 字段(field)直接写值：field_dropdown写枚举\`HIGH\`、field_input写字符串\`"dht"\`、field_number写数字\`9600\`、field_variable写\`$varName\`
+// - 值输入(input_value)必须连接值块：数字用\`math_number(10)\`、文本用\`text("Hello")\`、布尔用\`logic_boolean(TRUE)\`、变量用\`$varName\`(自动创建variables_get)
+// - 语句输入(input_statement)用4空格缩进子块表示
+// - 多输入块用\`@输入名:\`标记：如controls_if的\`@IF0:\`/\`@DO0:\`/\`@ELSE:\`
+// - 空括号不可省略：\`block_name()\`
                 toolContent += `
 <rules>Blockly块操作规范流程（ABS模式），**严格遵守**：
 
@@ -3338,13 +3344,6 @@ ${JSON.stringify(errData)}
 3. 列出所有需要使用的库（必须包含\`lib-core-*\`系列核心库：logic、variables、time、math等）
 4. 逐一阅读各库readme_ai.md了解块定义和ABS语法
 5. 如果需要的库未安装，则查询并安装所需库，安装完成后重新执行步骤1-4
-
-【ABS编写规范】
-- 变量引用必须使用\`$变量名\`格式（如\`$count\`、\`$ledPin\`）
-- 字符串值用双引号包裹：\`text_print("Hello")\`
-- 数字直接书写：\`math_number(10)\`
-- 嵌套块用圆括号：\`controls_if(logic_compare(...))\`
-- 注意区分：字段值直接写，输入值需要连接块
 
 【创建/修改阶段】
 1. **完整规划代码逻辑**，先在脑中构思完整的ABS结构
