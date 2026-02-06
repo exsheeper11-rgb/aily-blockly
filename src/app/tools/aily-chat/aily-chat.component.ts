@@ -4249,6 +4249,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
     event.preventDefault();
     event.stopPropagation();
 
+    this.showModelMenu = false;
     this.showMode = !this.showMode;
   }
 
@@ -4319,6 +4320,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
     event.preventDefault();
     event.stopPropagation();
 
+    this.showMode = false;
     this.showModelMenu = !this.showModelMenu;
   }
 
