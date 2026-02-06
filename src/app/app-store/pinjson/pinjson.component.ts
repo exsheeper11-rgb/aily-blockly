@@ -30,6 +30,9 @@ export class PinjsonComponent implements OnInit, OnDestroy {
   private messageListenerBound: ((event: MessageEvent) => void) | null = null;
   private childReadyReceived = false;
   private dataConfirmed = false;
+  
+  // 无数据状态显示控制
+  showEmptyState = false;
 
   constructor(
     @Optional() @Inject(NZ_MODAL_DATA) public data: PinjsonModalData | null,
@@ -58,6 +61,11 @@ export class PinjsonComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    // 延迟1.5秒显示无数据状态
+    setTimeout(() => {
+      this.showEmptyState = true;
+    }, 800);
+
     // 如果不是 modal 模式，从 URL 查询参数读取文件路径
     if (!this.data) {
       this.route.queryParams.subscribe(params => {

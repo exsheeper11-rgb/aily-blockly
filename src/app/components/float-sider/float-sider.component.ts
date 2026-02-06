@@ -96,7 +96,8 @@ export class FloatSiderComponent implements OnInit, OnDestroy {
   showPinjson() {
     const pinjsonPath = this.boardPackagePath + '/pinjson.json';
     if (!this.electronService.exists(pinjsonPath)) {
-      this.message.error(this.translate.instant('FLOAT_SIDER.NO_PINMAP'));
+      // this.message.error(this.translate.instant('FLOAT_SIDER.NO_PINMAP'));
+      this.showPinmap();
       return;
     }
     
