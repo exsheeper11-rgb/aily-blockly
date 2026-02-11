@@ -2231,7 +2231,15 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
             },
             required: ['libraryNames']
         }
-    // },
+    },
+    {
+        name: 'get_abs_syntax',
+        description: `Get the ABS (Aily Block Syntax) syntax specification. Returns a concise but complete reference for writing ABS code. Use this tool when you need to understand ABS syntax rules, block connection types, parameter mapping, or control flow structures before generating ABS code.`,
+        input_schema: {
+            type: 'object',
+            properties: {},
+            required: []
+        }
     }
     // {
     //     name: 'verify_block_existence',

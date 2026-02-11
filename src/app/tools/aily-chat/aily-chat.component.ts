@@ -62,6 +62,7 @@ import {
 // ABS 工具 (Aily Block Syntax)
 // import { insertDslHandler, getDslHelpHandler } from './tools/dslTool';
 import { syncAbsFileHandler } from './tools/syncAbsFileTool';
+import { getAbsSyntaxTool } from './tools/getAbsSyntaxTool';
 // // 原子化块操作工具
 // import {
 //   createSingleBlockTool,
@@ -3335,6 +3336,25 @@ ${JSON.stringify(errData)}
                       }
                     }
                     break;
+                  case 'get_abs_syntax':
+//                     this.appendMessage('aily', `
+
+// \`\`\`aily-state
+// {
+//   "state": "doing",
+//   "text": "了解 ABS语法规范...",
+//   "id": "${toolCallId}"
+// }
+// \`\`\`\n\n
+//                     `);
+                    toolResult = await getAbsSyntaxTool();
+                    // if (toolResult?.is_error) {
+                    //   resultState = "error";
+                    //   resultText = `了解 ABS语法规范 失败`;
+                    // } else {
+                    //   resultText = '了解 ABS语法规范 完成';
+                    // }
+                    break;
                   //                   case 'arduino_syntax_check':
                   //                     console.log('🔍 [Arduino语法检查工具被调用]', toolArgs);
 
@@ -3442,7 +3462,8 @@ ${JSON.stringify(errData)}
 // - 多输入块用\`@输入名:\`标记：如controls_if的\`@IF0:\`/\`@DO0:\`/\`@ELSE:\`
 // - 空括号不可省略：\`block_name()\`
                 toolContent += `
-<rules>Blockly块操作规范流程（ABS模式），**严格遵守**：
+<rules>
+Blockly块操作规范流程（ABS模式），**严格遵守**：
 
 【核心原则】
 所有块操作统一通过ABS文件进行：创建=添加ABS代码行，修改=编辑参数，删除=移除代码行
@@ -3471,7 +3492,9 @@ ${JSON.stringify(errData)}
 【执行要求】
 - 深入分析嵌入式代码逻辑和硬件特性，确保逻辑正确
 - ABS代码保持清晰的缩进和换行，便于阅读和调试
-- 复杂结构分步创建，先创建外层再填充内层</rules>
+- 复杂结构分步创建，先创建外层再填充内层
+- readme_ai.md不存在时，使用analyze_library_blocks工具分析库块定义或者直接读取库文件进行理解
+</rules>
 <toolResult>${toolResult?.content}</toolResult>\n<info>如果想结束对话，转交给用户，可以使用[to_xxx]，这里的xxx为user</info>`;
               } else if (shouldIncludeKeyInfo) {
                 // 需要路径信息的工具 或 工具失败时：只包含 keyInfo
