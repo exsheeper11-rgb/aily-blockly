@@ -130,7 +130,7 @@ export class MarkdownPipe implements PipeTransform {
    * 检查是否为特殊的 Aily 代码块类型
    */
   private isAilyCodeBlock(lang: string): boolean {
-    const ailyTypes = ['aily-blockly', 'aily-board', 'aily-library', 'aily-state', 'aily-button', 'aily-error', 'aily-mermaid', 'mermaid', 'aily-task-action', 'aily-think'];
+    const ailyTypes = ['aily-blockly', 'aily-board', 'aily-library', 'aily-state', 'aily-button', 'aily-error', 'aily-mermaid', 'mermaid', 'aily-task-action', 'aily-think', 'aily-context'];
     // 确保 lang 被正确 trim，避免空格或换行符导致匹配失败
     const normalizedLang = lang?.trim()?.toLowerCase() || '';
     return ailyTypes.includes(normalizedLang);
@@ -290,6 +290,22 @@ export class MarkdownPipe implements PipeTransform {
             type: 'aily-think',
             content: String(thinkContent),
             isComplete: jsonData.isComplete !== false,
+            metadata: jsonData.metadata || {}
+          };
+        case 'aily-context':
+          // 解码 content（如果是 base64 编码的）
+          let ctxContent = jsonData.content || '';
+          if (jsonData.encoded && typeof ctxContent === 'string') {
+            try {
+              ctxContent = decodeURIComponent(atob(ctxContent));
+            } catch (e) {
+              console.warn('Failed to decode context content:', e);
+            }
+          }
+          return {
+            type: 'aily-context',
+            label: jsonData.label || '附加上下文',
+            content: String(ctxContent),
             metadata: jsonData.metadata || {}
           };
         default:

@@ -11,7 +11,7 @@ import { Subscription } from 'rxjs';
 import { ElectronService } from '../../../services/electron.service';
 import { ProjectService } from '../../../services/project.service';
 import { BlocklyService } from '../../../editors/blockly-editor/services/blockly.service';
-import { convertAbiToAbs, convertAbsToAbi } from '../tools/abiAbsConverter';
+import { convertAbsToAbi, convertAbiToAbsWithLineMap } from '../tools/abiAbsConverter';
 
 // =============================================================================
 // 类型定义
@@ -133,7 +133,10 @@ export class AbsAutoSyncService implements OnDestroy {
       if (!abiJson) {
         return null;
       }
-      return convertAbiToAbs(abiJson, { includeHeader: true });
+      const { abs, blockLineMap } = convertAbiToAbsWithLineMap(abiJson, { includeHeader: true });
+      // 同步更新 blockLineMap，确保与生成的 ABS 文件行号一致
+      this.blocklyService.absBlockLineMap.next(blockLineMap);
+      return abs;
     } catch (error) {
       console.error('[AbsAutoSync] getWorkspaceAbsContent failed:', error);
       return null;
@@ -158,8 +161,10 @@ export class AbsAutoSyncService implements OnDestroy {
         return null;
       }
       
-      // 转换为 ABS
-      const absContent = convertAbiToAbs(abiJson, { includeHeader: true });
+      // 转换为 ABS（并获取 blockLineMap）
+      const { abs: absContent, blockLineMap } = convertAbiToAbsWithLineMap(abiJson, { includeHeader: true });
+      // 同步更新 blockLineMap
+      this.blocklyService.absBlockLineMap.next(blockLineMap);
       
       // 写入 ABS 文件
       const absFilePath = this.getAbsFilePath();

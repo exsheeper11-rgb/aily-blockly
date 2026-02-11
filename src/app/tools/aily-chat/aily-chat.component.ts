@@ -9,7 +9,7 @@ import { NzResizableModule, NzResizeEvent } from 'ng-zorro-antd/resizable';
 import { SubWindowComponent } from '../../components/sub-window/sub-window.component';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
-import { Subscription, skip, distinctUntilChanged } from 'rxjs';
+import { Subscription, skip, distinctUntilChanged, combineLatest } from 'rxjs';
 import { ChatService, ChatTextOptions, AVAILABLE_MODELS, ModelConfig } from './services/chat.service';
 import { ModelConfigOption } from './services/aily-chat-config.service';
 import { NzToolTipModule } from 'ng-zorro-antd/tooltip';
@@ -89,10 +89,14 @@ export interface Tool {
 }
 
 export interface ResourceItem {
-  type: 'file' | 'folder' | 'url';
+  type: 'file' | 'folder' | 'url' | 'block';
   path?: string;
   url?: string;
   name: string;
+  /** block 类型时存储 formatted 上下文信息（LLM 友好文本） */
+  blockContext?: string;
+  /** block 类型时存储关联的 blockId */
+  blockId?: string;
 }
 
 export interface ChatMessage {
@@ -201,6 +205,7 @@ export class AilyChatComponent implements OnDestroy {
   private aiWaitingSubscription: Subscription;
   private projectPathSubscription: Subscription; // 订阅项目路径变化
   private configChangedSubscription: Subscription; // 订阅配置变更
+  private blockSelectionSubscription: Subscription; // 订阅 Blockly 块选中事件
   private mcpInitialized = false; // 添加标志位防止重复初始化MCP
   
   // 任务操作相关
@@ -1114,6 +1119,14 @@ Do not create non-existent boards and libraries.
 
     this.aiWaitingSubscription = this.blocklyService.aiWaiting$.subscribe(this.showAiWritingNotice.bind(this));
 
+    // 订阅 Blockly 块选中变化 + 代码映射变化，自动添加/更新 block 上下文
+    this.blockSelectionSubscription = combineLatest([
+      this.blocklyService.selectedBlockSubject,
+      this.blocklyService.blockCodeMapSubject
+    ]).subscribe(([blockId, _codeMap]) => {
+      this.updateBlockContext(blockId);
+    });
+
     // 绑定任务操作事件监听
     this.taskActionHandler = this.handleTaskAction.bind(this);
     document.addEventListener('aily-task-action', this.taskActionHandler);
@@ -1695,7 +1708,7 @@ ${JSON.stringify(errData)}
       return;
     }
 
-    this.send('user', this.inputValue.trim(), true);
+    await this.send('user', this.inputValue.trim(), true);
     // 将用户添加的上下文路径保存到会话允许路径中
     this.mergeSelectContentToSessionPaths();
     this.selectContent = [];
@@ -1996,7 +2009,7 @@ ${JSON.stringify(errData)}
             let resultState = "done";
             let resultText = '';
 
-            // console.log("工具调用请求: ", data.tool_name, toolArgs);
+            console.log("工具调用请求: ", data.tool_name, toolArgs);
 
             // 定义 block 工具列表
             const blockTools = [
@@ -3493,7 +3506,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
               this.completeToolCall(data.tool_id, data.tool_name, finalState, resultText);
             }
 
-            // console.log(`工具调用结果: `, toolResult, resultText);
+            console.log(`工具调用结果: `, toolResult, resultText);
 
             this.send("tool", JSON.stringify({
               "type": "tool",
@@ -3734,7 +3747,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
           return;
         }
 
-        this.send("user", this.inputValue.trim(), true);
+        await this.send("user", this.inputValue.trim(), true);
         // 将用户添加的上下文路径保存到会话允许路径中
         this.mergeSelectContentToSessionPaths();
         this.selectContent = [];
@@ -4229,6 +4242,30 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
   }
 
   /**
+   * 根据块选中状态更新 block 上下文资源项
+   * 选中时自动添加/更新，取消选中时自动移除
+   */
+  private updateBlockContext(blockId: string | null): void {
+    // 先移除旧的 block 上下文项
+    this.selectContent = this.selectContent.filter(item => item.type !== 'block');
+
+    if (!blockId) return;
+
+    // 获取块的上下文标签信息
+    const ctxLabel = this.blocklyService.getSelectedBlockContextLabel();
+    if (!ctxLabel) return;
+
+    this.selectContent.push({
+      type: 'block',
+      name: ctxLabel.label,
+      blockContext: ctxLabel.formatted,
+      blockId: ctxLabel.blockId
+    });
+
+    console.log('更新块上下文资源项:', ctxLabel);
+  }
+
+  /**
    * 清空所有资源
    */
   clearAllResources() {
@@ -4263,6 +4300,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
     const fileItems = this.selectContent.filter(item => item.type === 'file');
     const folderItems = this.selectContent.filter(item => item.type === 'folder');
     const urlItems = this.selectContent.filter(item => item.type === 'url');
+    const blockItems = this.selectContent.filter(item => item.type === 'block');
 
     let text = '';
 
@@ -4281,6 +4319,12 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
     if (urlItems.length > 0) {
       text += '参考URL:\n';
       text += urlItems.map(item => `- ${item.url}`).join('\n');
+      text += '\n\n';
+    }
+
+    if (blockItems.length > 0) {
+      // text += '用户选中的积木块上下文:\n';
+      text += blockItems.map(item => item.blockContext || item.name).join('\n');
       text += '\n\n';
     }
 
@@ -4556,6 +4600,12 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
     if (this.configChangedSubscription) {
       this.configChangedSubscription.unsubscribe();
       this.configChangedSubscription = null;
+    }
+
+    // 清理块选中订阅
+    if (this.blockSelectionSubscription) {
+      this.blockSelectionSubscription.unsubscribe();
+      this.blockSelectionSubscription = null;
     }
 
     // 清理任务操作事件监听

@@ -18,6 +18,7 @@ import { AilyErrorViewerComponent } from '../components/aily-error-viewer/aily-e
 import { AilyMermaidViewerComponent } from '../components/aily-mermaid-viewer/aily-mermaid-viewer.component';
 import { AilyTaskActionViewerComponent } from '../components/aily-task-action-viewer/aily-task-action-viewer.component';
 import { AilyThinkViewerComponent } from '../components/aily-think-viewer/aily-think-viewer.component';
+import { AilyContextViewerComponent } from '../components/aily-context-viewer/aily-context-viewer.component';
 import { safeBase64Decode } from '../pipes/markdown.pipe';
 
 /**
@@ -340,6 +341,8 @@ export class AilyDynamicComponentDirective implements OnInit, OnDestroy {
         return AilyTaskActionViewerComponent;
       case 'aily-think':
         return AilyThinkViewerComponent;
+      case 'aily-context':
+        return AilyContextViewerComponent;
       default:
         return null;
     }
