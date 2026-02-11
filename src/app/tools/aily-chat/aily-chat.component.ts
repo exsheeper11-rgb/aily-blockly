@@ -1511,6 +1511,7 @@ Do not create non-existent boards and libraries.
         "state": state
       });
     }
+    this.terminateTemp = '';
     this.chatService.historyChatMap.set(this.sessionId, this.list);
   }
 
@@ -1764,6 +1765,7 @@ ${JSON.stringify(errData)}
 
     // 发送消息时重新启用自动滚动
     this.autoScrollEnabled = true;
+    this.terminateTemp = '';
 
     let text = content.trim();
     if (!this.sessionId || !text) return;
