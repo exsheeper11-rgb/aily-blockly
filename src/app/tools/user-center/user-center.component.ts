@@ -309,6 +309,8 @@ export class UserCenterComponent {
    * 点击头像时触发 SSO 跳转
    */
   async onAvatarClick(): Promise<void> {
+    // TODO: @downey 暂时禁用头像点击跳转
+    return;
     try {
       // 显示加载提示
       const loadingMessage = this.message.loading('正在生成登录链接...', { nzDuration: 0 });
