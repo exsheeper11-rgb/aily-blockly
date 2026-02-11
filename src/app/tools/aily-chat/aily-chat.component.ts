@@ -3337,23 +3337,23 @@ ${JSON.stringify(errData)}
                     }
                     break;
                   case 'get_abs_syntax':
-//                     this.appendMessage('aily', `
+                    this.appendMessage('aily', `
 
-// \`\`\`aily-state
-// {
-//   "state": "doing",
-//   "text": "了解 ABS语法规范...",
-//   "id": "${toolCallId}"
-// }
-// \`\`\`\n\n
-//                     `);
+\`\`\`aily-state
+{
+  "state": "doing",
+  "text": "了解 ABS语法规范...",
+  "id": "${toolCallId}"
+}
+\`\`\`\n\n
+                    `);
                     toolResult = await getAbsSyntaxTool();
-                    // if (toolResult?.is_error) {
-                    //   resultState = "error";
-                    //   resultText = `了解 ABS语法规范 失败`;
-                    // } else {
-                    //   resultText = '了解 ABS语法规范 完成';
-                    // }
+                    if (toolResult?.is_error) {
+                      resultState = "error";
+                      resultText = `了解 ABS语法规范 失败`;
+                    } else {
+                      resultText = '了解 ABS语法规范 完成';
+                    }
                     break;
                   //                   case 'arduino_syntax_check':
                   //                     console.log('🔍 [Arduino语法检查工具被调用]', toolArgs);
@@ -3472,15 +3472,15 @@ Blockly块操作规范流程（ABS模式），**严格遵守**：
 1. 使用todo_write_tool规划当前项目流程
 2. 使用get_workspace_overview_tool分析当前工作区，获取ABS代码和变量列表
 3. 列出所有需要使用的库（必须包含\`lib-core-*\`系列核心库：logic、variables、time、math等）
-4. 逐一阅读各库readme_ai.md了解块定义和ABS语法
-5. 如果当前已安装的库不满足需求，则查询并安装所需库，安装完成后重新执行步骤1-4
+4. 逐一阅读各库readme_ai.md或readme.md了解块定义和ABS语法
+5. 如果当前已安装的库不满足需求，则使用search_boards_libraries工具查询库并进行安装，安装完成后重新执行步骤1-4
 
 【创建/修改阶段】
 1. **完整规划代码逻辑**，先在脑中构思完整的ABS结构
 2. 使用sync_abs_file工具的export操作获取当前代码
 3. 编辑ABS代码：添加新块、修改参数、调整结构
 4. 使用sync_abs_file工具的import操作导入修改后的ABS
-5. 检查工具反馈，如果失败则分析错误信息，修正ABS代码后重新导入
+5. 仔细分析错误信息，定位并修复ABS代码问题
 6. 如果库功能不完善，安装lib-core-custom自定义库，重复步骤2-5直至完成
 
 【修复原则】
@@ -3493,7 +3493,8 @@ Blockly块操作规范流程（ABS模式），**严格遵守**：
 - 深入分析嵌入式代码逻辑和硬件特性，确保逻辑正确
 - ABS代码保持清晰的缩进和换行，便于阅读和调试
 - 复杂结构分步创建，先创建外层再填充内层
-- readme_ai.md不存在时，使用analyze_library_blocks工具分析库块定义或者直接读取库文件进行理解
+- 使用get_abs_syntax工具了解ABS语法规范，确保代码符合要求
+- readme_ai.md或readme.md不存在时，使用analyze_library_blocks工具分析库块定义或者直接读取库文件进行理解
 </rules>
 <toolResult>${toolResult?.content}</toolResult>\n<info>如果想结束对话，转交给用户，可以使用[to_xxx]，这里的xxx为user</info>`;
               } else if (shouldIncludeKeyInfo) {

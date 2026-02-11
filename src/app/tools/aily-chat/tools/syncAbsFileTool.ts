@@ -1501,6 +1501,69 @@ async function incrementalUpdate(
   
   // console.log(`📊 增量更新完成: 精确匹配 ${unchangedCount}, 递归更新 ${updatedCount}, 删除 ${removedCount}, 添加 ${addedCount}`);
   
+  // ============ 阶段 6：最终清理 - 删除所有不在 ABS 中的残留根块 ============
+  // 处理创建失败残留的孤立块：获取当前所有根块，与 ABS 定义的块类型/数量进行对比
+  // console.log(`🔍 阶段 6: 最终清理残留块`);
+  
+  // 统计 ABS 中每种块类型的数量
+  const expectedBlockCounts = new Map<string, number>();
+  for (const newBlock of newBlocks) {
+    expectedBlockCounts.set(newBlock.type, (expectedBlockCounts.get(newBlock.type) || 0) + 1);
+  }
+  
+  // 获取当前工作区所有根块并按类型分组
+  const currentTopBlocks = workspace.getTopBlocks(false);
+  const currentBlocksByType = new Map<string, any[]>();
+  for (const block of currentTopBlocks) {
+    const type = block.type;
+    if (!currentBlocksByType.has(type)) {
+      currentBlocksByType.set(type, []);
+    }
+    currentBlocksByType.get(type)!.push(block);
+  }
+  
+  // 删除多余的块（类型不在 ABS 中，或者数量超出预期）
+  let cleanupCount = 0;
+  for (const [type, blocks] of currentBlocksByType) {
+    const expectedCount = expectedBlockCounts.get(type) || 0;
+    
+    if (expectedCount === 0) {
+      // 该类型完全不在 ABS 中，全部删除
+      // console.log(`  🗑️ 删除不在 ABS 中的块类型: ${type} (${blocks.length} 个)`);
+      for (const block of blocks) {
+        Blockly.Events.disable();
+        try {
+          block.dispose(true);
+          cleanupCount++;
+        } catch (e) {
+          console.warn(`清理块失败: ${type}`, e);
+        } finally {
+          Blockly.Events.enable();
+        }
+      }
+    } else if (blocks.length > expectedCount) {
+      // 数量超出预期，删除多余的（保留前 expectedCount 个）
+      const toDelete = blocks.slice(expectedCount);
+      // console.log(`  🗑️ 删除多余的 ${type} 块 (${toDelete.length} 个，保留 ${expectedCount} 个)`);
+      for (const block of toDelete) {
+        Blockly.Events.disable();
+        try {
+          block.dispose(true);
+          cleanupCount++;
+        } catch (e) {
+          console.warn(`清理块失败: ${type}`, e);
+        } finally {
+          Blockly.Events.enable();
+        }
+      }
+    }
+  }
+  
+  if (cleanupCount > 0) {
+    // console.log(`  ✅ 清理了 ${cleanupCount} 个残留块`);
+    removedCount += cleanupCount;
+  }
+  
   // 强制重新渲染工作区，确保视觉状态正确
   try {
     // 方法1: 重新渲染所有块
