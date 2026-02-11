@@ -82,6 +82,9 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
   private async processContent() {
     // 过滤 think 标签内容，支持实时过滤
     let currentContent = this.filterThinkContent(this.content);
+
+    // 过滤 context / user-query 标签：折叠上下文，剥离 user-query 包裹
+    currentContent = this.filterContextTags(currentContent);
     
     // 对一些常见错误的处理，确保markdown格式正确
     currentContent = this.fixContent(currentContent);
@@ -802,6 +805,70 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
     }
     
     return result;
+  }
+
+  /**
+   * 过滤 <context> 和 <user-query> 标签
+   * - <context>...</context> → 转为可折叠的 aily-context 代码块
+   * - <user-query>...</user-query> → 剥离标签，仅保留内部文本
+   */
+  private filterContextTags(content: string): string {
+    if (!content) return content;
+
+    // 1) 处理 <context>...</context> → 折叠式 HTML 块
+    content = content.replace(/<context>\n?([\s\S]*?)\n?<\/context>/g, (_match, inner: string) => {
+      const trimmed = inner.trim();
+      if (!trimmed) return '';
+
+      const label = this.extractContextLabel(trimmed);
+      // 转义 HTML 特殊字符，防止内容干扰 DOM
+      // 将换行符替换为 &#10; 实体，确保整个 <details> 在一行内，避免被 splitMarkdownContent 拆分
+      const escaped = trimmed
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/\n/g, '&#10;');
+
+      return `<details class="aily-context-block"><summary class="aily-context-summary"><i class="fa-light fa-cube"></i> ${label}</summary><pre class="aily-context-content">${escaped}</pre></details>`;
+    });
+
+    // 2) 剥离 <user-query>...</user-query> 标签
+    content = content.replace(/<user-query>([\s\S]*?)<\/user-query>/g, '$1');
+
+    return content;
+  }
+
+  /**
+   * 从上下文内容中提取简短标签用于折叠显示
+   * 优先提取 blockly 行号，其次统计文件/文件夹/URL 数量
+   */
+  private extractContextLabel(contextText: string): string {
+    const parts: string[] = [];
+
+    // 检查是否包含积木块上下文行号信息（C++ 和 ABS）
+    const cppLineMatch = contextText.match(/对应C\+\+代码行数:\s*(\S+)/);
+    const absLineMatch = contextText.match(/对应ABS代码行数:\s*(\S+)/);
+
+    if (cppLineMatch || absLineMatch) {
+      const lineParts: string[] = [];
+      if (absLineMatch) lineParts.push(`A${absLineMatch[1]}`);
+      if (cppLineMatch) lineParts.push(`C${cppLineMatch[1]}`);
+      parts.push(`blockly:${lineParts.join('/')}`);
+    }
+
+    // 统计参考文件数量
+    const fileMatches = contextText.match(/^- .+/gm);
+    if (fileMatches && contextText.includes('参考文件:')) {
+      const fileCount = contextText.split('参考文件:')[1]?.split('\n\n')[0]?.match(/^- /gm)?.length || 0;
+      if (fileCount > 0) parts.push(`${fileCount}个文件`);
+    }
+    if (contextText.includes('参考文件夹:')) {
+      const folderCount = contextText.split('参考文件夹:')[1]?.split('\n\n')[0]?.match(/^- /gm)?.length || 0;
+      if (folderCount > 0) parts.push(`${folderCount}个文件夹`);
+    }
+
+    return parts.length > 0 ? parts.join(' + ') : '附加上下文';
   }
 
   fixContent(content: string): string {

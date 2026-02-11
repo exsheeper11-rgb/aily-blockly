@@ -74,13 +74,15 @@
           @if( selectContent.length > 0 ) {
           <div class="resource-list">
             @for( item of selectContent; track $index) {
-            <div class="resource-item">
+            <div class="resource-item" [class.block-item]="item.type === 'block'">
               @if(item.type == 'file') {
               <i class="fa-light fa-file"></i>
               }@else if(item.type == 'folder') {
               <i class="fa-light fa-folder"></i>
               }@else if(item.type == 'url') {
               <i class="fa-light fa-link"></i>
+              }@else if(item.type == 'block') {
+              <i class="fa-light fa-cube"></i>
               }
               <span class="resource-name">{{ item.name }}</span>
               <div class="btn ccenter" (click)="removeResource($index)">

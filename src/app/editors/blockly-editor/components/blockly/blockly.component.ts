@@ -43,6 +43,7 @@ import './plugins/block-plus-minus/src/index.js';
 import { arduinoGenerator } from './generators/arduino/arduino';
 import { micropythonGenerator } from './generators/micropython/micropython';
 import { BlocklyService } from '../../services/blockly.service';
+import { convertAbiToAbsWithLineMap } from '../../../../tools/aily-chat/tools/abiAbsConverter';
 import { BitmapUploadResponse, GlobalServiceManager } from '../../services/bitmap-upload.service';
 
 import './renderer/aily-icon';
@@ -458,6 +459,11 @@ export class BlocklyComponent implements DoCheck, OnDestroy {
       (window as any)['blocklyWorkspace'] = this.workspace;
       this.workspace.addChangeListener((event: any) => {
         this.codeGenerationSubject.next();
+
+        // 监听 block 选中事件，更新 selectedBlockSubject
+        if (event.type === Blockly.Events.SELECTED) {
+          this.blocklyService.selectedBlockSubject.next(event.newElementId || null);
+        }
       });
       this.initLanguage();
     }, 100);
@@ -583,6 +589,16 @@ export class BlocklyComponent implements DoCheck, OnDestroy {
       try {
         const code = this.generator.workspaceToCode(this.workspace);
         this.blocklyService.codeSubject.next(code);
+
+        // 发布 block-to-code 映射
+        if (this.generator.blockCodeMap) {
+          this.blocklyService.blockCodeMapSubject.next(
+            new Map(this.generator.blockCodeMap)
+          );
+          // 工作区变更后更新 ABS 行号映射（与用户下次导出 ABS 时的行号一致）
+          this.updateAbsBlockLineMap();
+        }
+
         // Extract #include and #define, check for changes
         const currentDependencies = this.extractDependencies(code);
         if (currentDependencies !== this.previousDependencies) {
@@ -606,5 +622,19 @@ export class BlocklyComponent implements DoCheck, OnDestroy {
       return trimmed.startsWith('#include') || trimmed.startsWith('#define');
     });
     return dependencies.join('\n');
+  }
+
+  /**
+   * 更新 ABS block 行号映射
+   * 工作区变更后调用，确保选中块时显示的 ABS 行号与实际导出一致
+   */
+  private updateAbsBlockLineMap(): void {
+    try {
+      const workspaceJson = Blockly.serialization.workspaces.save(this.workspace);
+      const { blockLineMap } = convertAbiToAbsWithLineMap(workspaceJson, { includeHeader: true });
+      this.blocklyService.absBlockLineMap.next(blockLineMap);
+    } catch (e) {
+      console.warn('[Blockly] Failed to update ABS block line map:', e);
+    }
   }
 }

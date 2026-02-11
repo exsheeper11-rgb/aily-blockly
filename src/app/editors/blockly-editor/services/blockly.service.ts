@@ -4,6 +4,8 @@ import * as Blockly from 'blockly';
 import { processI18n, processJsonVar, processStaticFilePath, processToolboxI18n } from '../components/blockly/abf';
 import { TranslateService } from '@ngx-translate/core';
 import { ElectronService } from '../../../services/electron.service';
+import { BlockCodeMapping, CodeLineRange } from '../components/blockly/generators/arduino/arduino';
+import { convertBlockTreeToAbs, convertAbiToAbsWithLineMap } from '../../../tools/aily-chat/tools/abiAbsConverter';
 
 @Injectable({
   providedIn: 'root'
@@ -31,6 +33,14 @@ export class BlocklyService {
 
   codeSubject = new BehaviorSubject<string>('');
   dependencySubject = new BehaviorSubject<string>('');
+
+  // ==================== Block-to-Code 映射系统 ====================
+  /** 当前选中的 block id */
+  selectedBlockSubject = new BehaviorSubject<string | null>(null);
+  /** block → 代码行号映射（每次代码生成后更新） */
+  blockCodeMapSubject = new BehaviorSubject<Map<string, BlockCodeMapping>>(new Map());
+  /** block → ABS 行号映射（由 abs-auto-sync 生成 ABS 时同步更新，确保与用户看到的 .abs 文件一致） */
+  absBlockLineMap = new BehaviorSubject<Map<string, { startLine: number; endLine: number }>>(new Map());
 
   boardConfig;
 
@@ -444,6 +454,9 @@ export class BlocklyService {
 
     // 重置其他可能的状态
     this.codeSubject.next('');
+    this.selectedBlockSubject.next(null);
+    this.blockCodeMapSubject.next(new Map());
+    this.absBlockLineMap.next(new Map());
 
     // console.log('BlocklyService 重置完成');
   }
@@ -476,6 +489,225 @@ export class BlocklyService {
       }, 2000);
     }
     return this.aiWaiting;
+  }
+
+  // ==================== Block-to-Code 查询 API ====================
+
+  /**
+   * 获取指定 block 对应的代码映射信息
+   * @param blockId 块 ID
+   * @returns BlockCodeMapping 或 null
+   */
+  getCodeForBlock(blockId: string): BlockCodeMapping | null {
+    const map = this.blockCodeMapSubject.value;
+    return map.get(blockId) || null;
+  }
+
+  /**
+   * 获取指定 block 对应的 C++ 代码片段文本
+   * @param blockId 块 ID
+   * @returns 代码文本或空字符串
+   */
+  getCodeSnippetForBlock(blockId: string): string {
+    const mapping = this.getCodeForBlock(blockId);
+    return mapping?.codeSnippet || '';
+  }
+
+  /**
+   * 获取指定 block 在代码中的行号范围
+   * @param blockId 块 ID
+   * @returns 行号范围数组
+   */
+  getCodeLinesForBlock(blockId: string): CodeLineRange[] {
+    const mapping = this.getCodeForBlock(blockId);
+    return mapping?.lineRanges || [];
+  }
+
+  /**
+   * 获取当前选中 block 的上下文信息（供 agent/LLM 使用）
+   * 精简格式：块类型 + ABS 代码片段 + C++ 对应行号
+   */
+  getSelectedBlockContext(): {
+    blockId: string;
+    blockType: string;
+    absSnippet: string;
+    cppLineRange: string;
+    absLineRange: string;
+    codeRanges: CodeLineRange[];
+    formatted: string;
+  } | null {
+    const blockId = this.selectedBlockSubject.value;
+    if (!blockId || !this.workspace) return null;
+
+    const block = this.workspace.getBlockById(blockId);
+    if (!block) return null;
+
+    // 获取该块的代码映射
+    const mapping = this.getCodeForBlock(blockId);
+    const ranges = mapping?.lineRanges || [];
+
+    // 生成 C++ 行号范围（简洁格式）
+    const cppLineRange = this._formatCppLineRange(ranges);
+
+    // 生成该块子树的 ABS 代码片段
+    const absSnippet = this._getBlockAbsSnippet(block);
+
+    // 生成 ABS 行号范围
+    const absLineRange = this._getBlockAbsLineRange(block, absSnippet);
+
+    // 格式化 LLM 友好文本
+    const formatted = this._formatBlockContextForLLM(block.type, absSnippet, cppLineRange, absLineRange);
+
+    return {
+      blockId,
+      blockType: block.type,
+      absSnippet,
+      cppLineRange,
+      absLineRange,
+      codeRanges: ranges,
+      formatted
+    };
+  }
+
+  /**
+   * 将 CodeLineRange 数组格式化为简洁的行号范围字符串
+   * 例："22-38" / "15" / "无"
+   */
+  private _formatCppLineRange(ranges: CodeLineRange[]): string {
+    if (!ranges || ranges.length === 0) return '无';
+    let minLine = Infinity;
+    let maxLine = -Infinity;
+    for (const r of ranges) {
+      if (r.startLine < minLine) minLine = r.startLine;
+      if (r.endLine > maxLine) maxLine = r.endLine;
+    }
+    return minLine === maxLine ? `${minLine}` : `${minLine}-${maxLine}`;
+  }
+
+  /**
+   * 获取单个块（含子树）的 ABS 代码片段
+   * 通过 Blockly 序列化 API 得到块的 ABI JSON，再用 convertBlockTreeToAbs 转换
+   */
+  private _getBlockAbsSnippet(block: Blockly.Block): string {
+    try {
+      // 序列化单个块（含子块、shadow 块）为 ABI JSON
+      const blockAbi = (Blockly as any).serialization.blocks.save(block, {
+        addCoordinates: false,
+        addInputBlocks: true,
+        addNextBlocks: false,  // 不包含 next 链中的兄弟块
+        doFullSerialization: false
+      });
+
+      // 获取工作区变量用于 ID → 名称转换
+      const variables = this.workspace!.getAllVariables().map(v => ({
+        id: v.getId(),
+        name: v.name,
+        type: v.type || 'int'
+      }));
+
+      return convertBlockTreeToAbs(blockAbi, variables);
+    } catch (e) {
+      // 序列化失败时返回块类型作为降级
+      return block.type;
+    }
+  }
+
+  /**
+   * 格式化块上下文为 LLM 友好的精简文本
+   */
+  private _formatBlockContextForLLM(blockType: string, absSnippet: string, cppLineRange: string, absLineRange: string): string {
+    const lines: string[] = [];
+    lines.push('[用户选中的积木块]');
+    lines.push(`块类型: ${blockType}`);
+    lines.push(`ABS代码:`);
+    lines.push(this._truncateAbsSnippet(absSnippet));
+    lines.push(`对应C++代码行数: ${cppLineRange}`);
+    if (absLineRange !== '无') {
+      lines.push(`对应ABS代码行数: ${absLineRange}`);
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * 截断过长的 ABS 代码片段
+   * 超过 6 行时保留前 3 行和后 3 行，中间用 ... 省略
+   */
+  private _truncateAbsSnippet(abs: string): string {
+    const lines = abs.split('\n');
+    if (lines.length <= 6) return abs;
+    const head = lines.slice(0, 3);
+    const tail = lines.slice(-3);
+    return [...head, `    ... (${lines.length - 6} lines omitted)`, ...tail].join('\n');
+  }
+
+  /**
+   * 从缓存的 ABS blockLineMap 中查找选中块的行号范围
+   * 该 map 由 abs-auto-sync 服务在生成 .abs 文件时同步更新，
+   * 确保行号与用户实际看到的 ABS 文件完全一致。
+   * 若缓存为空（abs-auto-sync 尚未运行），则即时生成作为降级
+   */
+  private _getBlockAbsLineRange(block: Blockly.Block, absSnippet: string): string {
+    try {
+      if (!absSnippet) return '无';
+
+      let blockLineMap = this.absBlockLineMap.value;
+
+      // 缓存为空时即时生成（降级）
+      if (!blockLineMap || blockLineMap.size === 0) {
+        if (!this.workspace) return '无';
+        const workspaceJson = Blockly.serialization.workspaces.save(this.workspace);
+        const result = convertAbiToAbsWithLineMap(workspaceJson, { includeHeader: true });
+        blockLineMap = result.blockLineMap;
+        // 缓存供后续使用
+        this.absBlockLineMap.next(blockLineMap);
+      }
+
+      // 直接查找选中块的行号范围
+      const range = blockLineMap.get(block.id);
+      if (range) {
+        return range.startLine === range.endLine
+          ? `${range.startLine}`
+          : `${range.startLine}-${range.endLine}`;
+      }
+
+      // 值块被内联到父块参数中，通过父块 ID 查找
+      const parentBlock = block.getParent();
+      if (parentBlock) {
+        const parentRange = blockLineMap.get(parentBlock.id);
+        if (parentRange) {
+          return `${parentRange.startLine}`;
+        }
+      }
+
+      return '无';
+    } catch (e) {
+      return '无';
+    }
+  }
+
+  /**
+   * 获取当前选中block的简短上下文标签（用于AI助手上下文列表展示）
+   * 格式：blockly:C10-20（C++行号）或 blockly:A5-12（ABS行号）
+   * @returns { label, formatted, blockId } 或 null
+   */
+  getSelectedBlockContextLabel(): { label: string; formatted: string; blockId: string } | null {
+    const ctx = this.getSelectedBlockContext();
+    if (!ctx) return null;
+
+    // 构建标签：优先显示 C++ 行号和 ABS 行号
+    const parts: string[] = [];
+    if (ctx.absLineRange !== '无') parts.push(`A${ctx.absLineRange}`);
+    if (ctx.cppLineRange !== '无') parts.push(`C${ctx.cppLineRange}`);
+
+    const label = parts.length > 0
+      ? `blockly:${parts.join('/')}`
+      : `blockly:${ctx.blockType}`;
+
+    return {
+      label,
+      formatted: ctx.formatted,
+      blockId: ctx.blockId
+    };
   }
 }
 
