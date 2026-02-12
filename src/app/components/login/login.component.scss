@@ -96,8 +96,8 @@
     height: 220px;
 
     .qrcode {
-        width: 180px;
-        height: 180px;
+        width: 156px;
+        height: 156px;
         border: 1px solid #666;
         border-radius: 3px;
         margin-bottom: 15px;
@@ -134,7 +134,6 @@
         .status-message {
             color: #ccc;
             font-size: 14px;
-            // margin-bottom: 10px;
 
             &.success {
                 color: #52c41a;
@@ -144,6 +143,12 @@
             &.error {
                 color: #ff4d4f;
             }
+        }
+
+        .countdown-hint {
+            color: #888;
+            font-size: 12px;
+            margin-top: 6px;
         }
     }
 }

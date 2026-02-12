@@ -47,6 +47,8 @@ export class LoginComponent implements OnDestroy {
   wechatStatus: 'loading' | 'pending' | 'confirmed' | 'expired' | 'error' = 'loading';
   wechatStatusMessage: string = '';
   wechatCheckSubscription: Subscription | null = null;
+  wechatQrcodeCountdown = 60; // 二维码 60s 倒计时
+  private wechatQrcodeTimer: ReturnType<typeof setInterval> | null = null;
 
   // 邮箱登录相关
   inputEmail = '';
@@ -103,6 +105,8 @@ export class LoginComponent implements OnDestroy {
           this.wechatStatus = 'pending';
           this.wechatStatusMessage = this.translate.instant('LOGIN.WECHAT_SCAN') || '请使用微信扫码登录';
           
+          // 开始 60s 倒计时，到期自动刷新
+          this.startWeChatQrcodeCountdown();
           // 开始轮询检查扫码状态
           this.startWeChatStatusCheck();
         } else {
@@ -151,6 +155,7 @@ export class LoginComponent implements OnDestroy {
             } else if (status === 'confirmed') {
               // 扫码成功，登录成功
               this.wechatStatus = 'confirmed';
+              this.clearWeChatQrcodeTimer();
               this.cleanupWeChatStatusCheck();
               
               // 处理登录成功
@@ -174,6 +179,7 @@ export class LoginComponent implements OnDestroy {
               // 二维码已过期
               this.wechatStatus = 'expired';
               this.wechatStatusMessage = response.data.message || this.translate.instant('LOGIN.WECHAT_EXPIRED') || '二维码已过期，请刷新';
+              this.clearWeChatQrcodeTimer();
               this.cleanupWeChatStatusCheck();
               this.message.warning(this.wechatStatusMessage);
             }
@@ -185,12 +191,38 @@ export class LoginComponent implements OnDestroy {
           if (error.status === 404) {
             this.wechatStatus = 'expired';
             this.wechatStatusMessage = this.translate.instant('LOGIN.WECHAT_EXPIRED') || '二维码已过期，请刷新';
+            this.clearWeChatQrcodeTimer();
             this.cleanupWeChatStatusCheck();
             this.message.warning(this.wechatStatusMessage);
           }
         }
       });
     });
+  }
+
+  /**
+   * 开始二维码 60s 倒计时，到期自动刷新
+   */
+  private startWeChatQrcodeCountdown() {
+    this.clearWeChatQrcodeTimer();
+    this.wechatQrcodeCountdown = 60;
+    this.wechatQrcodeTimer = setInterval(() => {
+      this.wechatQrcodeCountdown--;
+      if (this.wechatQrcodeCountdown <= 0) {
+        this.clearWeChatQrcodeTimer();
+        this.refreshWeChatQrcode();
+      }
+    }, 1000);
+  }
+
+  /**
+   * 清理二维码倒计时
+   */
+  private clearWeChatQrcodeTimer() {
+    if (this.wechatQrcodeTimer) {
+      clearInterval(this.wechatQrcodeTimer);
+      this.wechatQrcodeTimer = null;
+    }
   }
 
   /**
@@ -207,6 +239,7 @@ export class LoginComponent implements OnDestroy {
    * 清理微信登录状态
    */
   cleanupWeChatLogin() {
+    this.clearWeChatQrcodeTimer();
     this.cleanupWeChatStatusCheck();
     this.wechatQrcodeUrl = null;
     this.wechatTicket = null;
@@ -271,6 +304,14 @@ export class LoginComponent implements OnDestroy {
   getWeChatRetryText(): string {
     const translated = this.translate.instant('LOGIN.WECHAT_RETRY');
     return translated !== 'LOGIN.WECHAT_RETRY' ? translated : '重试';
+  }
+
+  /**
+   * 获取倒计时提示文字
+   */
+  getWeChatCountdownHint(): string {
+    const translated = this.translate.instant('LOGIN.WECHAT_COUNTDOWN_HINT');
+    return translated !== 'LOGIN.WECHAT_COUNTDOWN_HINT' ? translated : '后自动刷新';
   }
 
   onButtonClick(action: string): void {
