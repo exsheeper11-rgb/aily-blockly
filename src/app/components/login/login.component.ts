@@ -147,7 +147,7 @@ export class LoginComponent implements OnDestroy {
             if (status === 'pending') {
               // 等待扫码
               this.wechatStatus = 'pending';
-              this.wechatStatusMessage = response.data.message || this.translate.instant('LOGIN.WECHAT_WAITING') || '等待扫码';
+              // this.wechatStatusMessage = response.data.message || this.translate.instant('LOGIN.WECHAT_WAITING') || '等待扫码';
             } else if (status === 'confirmed') {
               // 扫码成功，登录成功
               this.wechatStatus = 'confirmed';
