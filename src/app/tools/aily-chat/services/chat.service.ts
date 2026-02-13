@@ -25,18 +25,12 @@ export interface ChatTextMessage {
   timestamp?: number;
 }
 
-// 可用模型列表
-export const AVAILABLE_MODELS: ModelConfig[] = [
-  { model: 'glm-4.7', family: 'glm', name: 'GLM-4.7', speed: '1x', enabled: true },
-  { model: 'glm-4.6', family: 'glm', name: 'GLM-4.6', speed: '1x', enabled: true }
-];
-
 @Injectable({
   providedIn: 'root'
 })
 export class ChatService {
 
-  currentMode = 'ask'; // 默认为代理模式
+  currentMode = 'agent'; // 默认为代理模式
   currentModel: ModelConfig | null = null; // 当前模型，在构造函数中初始化
   historyList = [];
   historyChatMap = new Map<string, any>();

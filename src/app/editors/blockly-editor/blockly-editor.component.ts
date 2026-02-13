@@ -212,7 +212,7 @@ export class BlocklyEditorComponent {
           onClosed: () => this.onOnboardingClosed(),
           onCompleted: () => this.onOnboardingClosed()
         });
-      }, 800);
+      }, 500);
     }
   }
 

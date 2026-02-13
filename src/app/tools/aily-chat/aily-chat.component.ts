@@ -10,8 +10,7 @@ import { SubWindowComponent } from '../../components/sub-window/sub-window.compo
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { Subscription, skip, distinctUntilChanged, combineLatest } from 'rxjs';
-import { ChatService, ChatTextOptions, AVAILABLE_MODELS, ModelConfig } from './services/chat.service';
-import { ModelConfigOption } from './services/aily-chat-config.service';
+import { ChatService, ChatTextOptions, ModelConfig } from './services/chat.service';
 import { NzToolTipModule } from 'ng-zorro-antd/tooltip';
 import { MenuComponent } from '../../components/menu/menu.component';
 import { IMenuItem } from '../../configs/menu.config';
@@ -4652,7 +4651,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
           onClosed: () => this.onOnboardingClosed(),
           onCompleted: () => this.onOnboardingClosed()
         });
-      }, 800);
+      }, 500);
     }
   }
 
