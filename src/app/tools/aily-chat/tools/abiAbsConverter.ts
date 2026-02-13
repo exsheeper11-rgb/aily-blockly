@@ -7,6 +7,8 @@
 import { parseAbs, BlocklyAbsParser } from './absParser';
 import { getGlobalBlockMetas } from '../services/block-definition.service';
 
+declare const Blockly: any;
+
 // =============================================================================
 // ABI JSON → ABS 转换
 // =============================================================================
@@ -74,16 +76,25 @@ export function convertAbiToAbs(abiJson: any, options: AbiToAbsOptions = {}): st
     }
   }
   
-  // 转换块
+  // 设置 lineOffset 为当前 header 行数（后续块转换时使用）
+  context.lineOffset = lines.length;
+  
+  // 转换块（按 y 坐标排序，确保输出顺序与视觉布局一致）
   if (abiJson.blocks?.blocks && Array.isArray(abiJson.blocks.blocks)) {
-    for (let i = 0; i < abiJson.blocks.blocks.length; i++) {
-      const block = abiJson.blocks.blocks[i];
+    const sortedBlocks = [...abiJson.blocks.blocks].sort((a: any, b: any) => {
+      const ay = a.y ?? 0, by = b.y ?? 0;
+      if (ay !== by) return ay - by;
+      return (a.x ?? 0) - (b.x ?? 0);
+    });
+    for (let i = 0; i < sortedBlocks.length; i++) {
+      const block = sortedBlocks[i];
       const blockAbs = convertBlockToAbs(block, 0, context);
       lines.push(...blockAbs);
       
       // 块之间空行
-      if (i < abiJson.blocks.blocks.length - 1) {
+      if (i < sortedBlocks.length - 1) {
         lines.push('');
+        context.lineOffset++;
       }
     }
   }
@@ -92,10 +103,86 @@ export function convertAbiToAbs(abiJson: any, options: AbiToAbsOptions = {}): st
 }
 
 /**
+ * 生成 ABS 并返回每个 blockId 对应的行号范围
+ * 行号为 1-based，与用户在编辑器中看到的行号一致
+ */
+export function convertAbiToAbsWithLineMap(
+  abiJson: any,
+  options: AbiToAbsOptions = {}
+): { abs: string; blockLineMap: Map<string, { startLine: number; endLine: number }> } {
+  const {
+    includeHeader = true,
+    indentStr = '    ',
+    includeBlockIds = false,
+    explicitBlockTypes = true
+  } = options;
+  
+  const lines: string[] = [];
+  const context = new ConversionContext(indentStr, includeBlockIds, explicitBlockTypes);
+  
+  // 文件头
+  if (includeHeader) {
+    lines.push('# ============================================');
+    lines.push('# Blockly ABS File');
+    lines.push(`# Generated: ${new Date().toISOString()}`);
+    if (explicitBlockTypes) {
+      lines.push('# Mode: Explicit block types (no syntax sugar)');
+    }    lines.push('# ============================================');
+    lines.push('');
+  }
+  
+  if (abiJson.variables && Array.isArray(abiJson.variables)) {
+    if (abiJson.variables.length > 0) {
+      for (const variable of abiJson.variables) {
+        context.registerVariable(variable.id, variable.name, variable.type || 'int');
+      }
+      lines.push('# Global definitions can be created as standalone blocks or within arduino_global blocks, eg:');
+      lines.push('# arduino_global()');
+      lines.push('#    variable_define("variable", int, math_number(0))');
+      lines.push('');
+      lines.push('# Blockly workspace variables (auto-managed, do not edit):');
+      for (const variable of abiJson.variables) {
+        lines.push(`# - ${variable.name}: ${variable.type || 'int'}`);
+      }
+      lines.push('');
+    }
+  }
+  
+  context.lineOffset = lines.length;
+  
+  // 按 y 坐标排序，确保与 convertAbiToAbs 输出顺序一致
+  if (abiJson.blocks?.blocks && Array.isArray(abiJson.blocks.blocks)) {
+    const sortedBlocks = [...abiJson.blocks.blocks].sort((a: any, b: any) => {
+      const ay = a.y ?? 0, by = b.y ?? 0;
+      if (ay !== by) return ay - by;
+      return (a.x ?? 0) - (b.x ?? 0);
+    });
+    for (let i = 0; i < sortedBlocks.length; i++) {
+      const block = sortedBlocks[i];
+      const blockAbs = convertBlockToAbs(block, 0, context);
+      lines.push(...blockAbs);
+      if (i < sortedBlocks.length - 1) {
+        lines.push('');
+        context.lineOffset++;
+      }
+    }
+  }
+  
+  return {
+    abs: lines.join('\n'),
+    blockLineMap: context.blockLineMap
+  };
+}
+
+/**
  * 转换上下文
  */
 class ConversionContext {
   private variables = new Map<string, { name: string; type: string }>();
+  /** 追踪每个 blockId 在输出中的行号范围（1-based） */
+  blockLineMap = new Map<string, { startLine: number; endLine: number }>();
+  /** 当前已累计的总行数偏移（用于计算绝对行号） */
+  lineOffset = 0;
   
   constructor(
     public indentStr: string,
@@ -115,29 +202,83 @@ class ConversionContext {
   indent(level: number): string {
     return this.indentStr.repeat(level);
   }
+
+  /** 记录一个块产生的行范围 */
+  recordBlockLines(blockId: string | undefined, startLine: number, lineCount: number): void {
+    if (!blockId) return;
+    const endLine = startLine + lineCount - 1;
+    // 如果同一个 blockId 已有记录，扩展范围（不会发生，但保险起见）
+    const existing = this.blockLineMap.get(blockId);
+    if (existing) {
+      existing.startLine = Math.min(existing.startLine, startLine);
+      existing.endLine = Math.max(existing.endLine, endLine);
+    } else {
+      this.blockLineMap.set(blockId, { startLine, endLine });
+    }
+  }
+
+  /**
+   * 递归记录值块树中所有块的行号
+   * 值块（如 logic_compare、math_number 等）被内联在父块参数中，共享同一行号
+   */
+  recordValueBlockTree(block: any, lineNumber: number): void {
+    if (!block || !block.id) return;
+    this.recordBlockLines(block.id, lineNumber, 1);
+    // 递归处理所有输入中的子块
+    if (block.inputs) {
+      for (const inputValue of Object.values(block.inputs)) {
+        const input = inputValue as any;
+        const childBlock = input?.block || input?.shadow;
+        if (childBlock) {
+          this.recordValueBlockTree(childBlock, lineNumber);
+        }
+      }
+    }
+  }
 }
 
 /**
  * 转换单个块为 ABS
  */
 function convertBlockToAbs(block: any, indentLevel: number, context: ConversionContext): string[] {
+  const startLine = context.lineOffset + 1; // 1-based
   const lines: string[] = [];
   const indent = context.indent(indentLevel);
   
   // 特殊处理 controls_if：始终使用命名输入格式
   if (block.type === 'controls_if') {
-    return convertControlsIfToAbs(block, indentLevel, context);
+    const result = convertControlsIfToAbs(block, indentLevel, context);
+    // controls_if 内部已处理 lineOffset，此处记录整个块范围
+    context.recordBlockLines(block.id, startLine, result.length);
+    return result;
   }
   
   // 特殊处理 controls_switch：使用命名输入格式
   if (block.type === 'controls_switch') {
-    return convertControlsSwitchToAbs(block, indentLevel, context);
+    const result = convertControlsSwitchToAbs(block, indentLevel, context);
+    context.recordBlockLines(block.id, startLine, result.length);
+    return result;
   }
   
   // 构建主块行
   const blockCall = buildBlockCall(block, context);
   const idComment = context.includeBlockIds ? `  # id: ${block.id}` : '';
   lines.push(`${indent}${blockCall}${idComment}`);
+  const mainLineNum = context.lineOffset + 1;  // 当前行的 1-based 行号
+  context.lineOffset++;
+  
+  // 记录值输入块（内联在主块行参数中的值块）的行号
+  if (block.inputs) {
+    const statementInputNames = new Set(getStatementInputs(block));
+    for (const [inputName, inputValue] of Object.entries(block.inputs)) {
+      if (statementInputNames.has(inputName)) continue;
+      const input = inputValue as any;
+      const childBlock = input?.block || input?.shadow;
+      if (childBlock) {
+        context.recordValueBlockTree(childBlock, mainLineNum);
+      }
+    }
+  }
   
   // 处理语句输入（缩进的子块）
   if (block.inputs) {
@@ -150,6 +291,7 @@ function convertBlockToAbs(block: any, indentLevel: number, context: ConversionC
         if (statementInputs.length > 1) {
           const normalizedName = normalizeInputNameForAbs(inputName);
           lines.push(`${indent}${context.indentStr}@${normalizedName}:`);
+          context.lineOffset++;
           const childLines = convertBlockChainToAbs(input.block, indentLevel + 2, context);
           lines.push(...childLines);
         } else {
@@ -160,7 +302,8 @@ function convertBlockToAbs(block: any, indentLevel: number, context: ConversionC
     }
   }
   
-  // 处理 next（同级顺序）- 不在这里处理，由 convertBlockChainToAbs 处理
+  // 记录当前块的行范围
+  context.recordBlockLines(block.id, startLine, lines.length);
   
   return lines;
 }
@@ -178,6 +321,7 @@ function convertControlsIfToAbs(block: any, indentLevel: number, context: Conver
   // 主块行
   const idComment = context.includeBlockIds ? `  # id: ${block.id}` : '';
   lines.push(`${indent}controls_if()${idComment}`);
+  context.lineOffset++;
   
   if (block.inputs) {
     // 收集所有 IF/DO 对的索引（同时检查 IF 和 DO，因为可能一个有内容另一个没有）
@@ -203,11 +347,16 @@ function convertControlsIfToAbs(block: any, indentLevel: number, context: Conver
       if (ifInput?.block) {
         const conditionAbs = formatBlockAsValue(ifInput.block, context);
         lines.push(`${childIndent}@IF${idx}: ${conditionAbs}`);
+        // 记录条件值块（如 logic_compare）及其子块的行号（当前行 = lineOffset + 1）
+        const currentLineNum = context.lineOffset + 1;
+        context.lineOffset++;
+        context.recordValueBlockTree(ifInput.block, currentLineNum);
       }
       
       // @DOn: 执行体
       if (doInput?.block) {
         lines.push(`${childIndent}@DO${idx}:`);
+        context.lineOffset++;
         const doLines = convertBlockChainToAbs(doInput.block, indentLevel + 2, context);
         lines.push(...doLines);
       }
@@ -217,6 +366,7 @@ function convertControlsIfToAbs(block: any, indentLevel: number, context: Conver
     const elseInput = block.inputs['ELSE'];
     if (elseInput?.block) {
       lines.push(`${childIndent}@ELSE:`);
+      context.lineOffset++;
       const elseLines = convertBlockChainToAbs(elseInput.block, indentLevel + 2, context);
       lines.push(...elseLines);
     }
@@ -249,6 +399,7 @@ function convertControlsSwitchToAbs(block: any, indentLevel: number, context: Co
   // 主块行
   const idComment = context.includeBlockIds ? `  # id: ${block.id}` : '';
   lines.push(`${indent}controls_switch()${idComment}`);
+  context.lineOffset++;
   
   if (block.inputs) {
     // @SWITCH: 选择值
@@ -256,6 +407,9 @@ function convertControlsSwitchToAbs(block: any, indentLevel: number, context: Co
     if (switchInput?.block) {
       const switchAbs = formatBlockAsValue(switchInput.block, context);
       lines.push(`${childIndent}@SWITCH: ${switchAbs}`);
+      const currentLineNum = context.lineOffset + 1;
+      context.lineOffset++;
+      context.recordValueBlockTree(switchInput.block, currentLineNum);
     }
     
     // 收集所有 CASE/DO 对的索引（同时检查 CASE 和 DO，因为可能一个有内容另一个没有）
@@ -281,11 +435,15 @@ function convertControlsSwitchToAbs(block: any, indentLevel: number, context: Co
       if (caseInput?.block) {
         const caseAbs = formatBlockAsValue(caseInput.block, context);
         lines.push(`${childIndent}@CASE${idx}: ${caseAbs}`);
+        const currentLineNum = context.lineOffset + 1;
+        context.lineOffset++;
+        context.recordValueBlockTree(caseInput.block, currentLineNum);
       }
       
       // @DOn: 执行体
       if (doInput?.block) {
         lines.push(`${childIndent}@DO${idx}:`);
+        context.lineOffset++;
         const doLines = convertBlockChainToAbs(doInput.block, indentLevel + 2, context);
         lines.push(...doLines);
       }
@@ -295,6 +453,7 @@ function convertControlsSwitchToAbs(block: any, indentLevel: number, context: Co
     const defaultInput = block.inputs['DEFAULT'];
     if (defaultInput?.block) {
       lines.push(`${childIndent}@DEFAULT:`);
+      context.lineOffset++;
       const defaultLines = convertBlockChainToAbs(defaultInput.block, indentLevel + 2, context);
       lines.push(...defaultLines);
     }
@@ -470,29 +629,85 @@ function formatBlockAsValue(block: any, context: ConversionContext): string {
   }
 }
 
+// 运行时查询缓存：blockType -> Set<语句输入名>
+const runtimeStatementInputCache = new Map<string, Set<string>>();
+
+/**
+ * 通过 Blockly 运行时查询块的语句输入名称
+ * 这是最可靠的方式，因为它直接从块定义中获取，包括 mutator 动态添加的输入
+ */
+function queryStatementInputsFromBlockly(blockType: string): Set<string> | null {
+  // 检查缓存
+  if (runtimeStatementInputCache.has(blockType)) {
+    return runtimeStatementInputCache.get(blockType)!;
+  }
+  
+  // 检查 Blockly 是否可用
+  if (typeof Blockly === 'undefined' || !Blockly.Blocks || !Blockly.Blocks[blockType]) {
+    return null;
+  }
+  
+  try {
+    // 获取工作区用于创建临时块
+    const workspace = Blockly.getMainWorkspace?.();
+    if (!workspace) return null;
+    
+    // 创建临时块来查询输入类型
+    const tempBlock = workspace.newBlock(blockType);
+    const statementInputs = new Set<string>();
+    
+    if (tempBlock.inputList) {
+      for (const input of tempBlock.inputList) {
+        // connection.type === 3 表示 NEXT_STATEMENT（语句输入）
+        if (input.connection && input.connection.type === 3) {
+          statementInputs.add(input.name);
+        }
+      }
+    }
+    
+    // 清理临时块
+    tempBlock.dispose();
+    
+    // 缓存结果
+    runtimeStatementInputCache.set(blockType, statementInputs);
+    return statementInputs;
+  } catch (e) {
+    console.warn(`[abiAbsConverter] Failed to query block ${blockType} from Blockly:`, e);
+    return null;
+  }
+}
+
 /**
  * 获取块的语句输入名称
  * 
- * 采用多层检测策略（结合动态元数据和子块推断）：
- * 1. 从动态块定义获取已知的语句输入
- * 2. 从子块特征推断动态添加的语句输入（mutator 场景）
- * 3. 使用启发式规则补充（输入名模式匹配）
- * 
- * 这种组合策略能同时处理：
- * - 静态定义的块（从 block.json 获取）
- * - 动态扩展的块（如 controls_switch 使用 mutator 添加的 case）
+ * 采用三层检测策略（按优先级）：
+ * 1. 【最可靠】从 Blockly 运行时查询（直接获取块定义，包括 mutator 动态输入）
+ * 2. 从静态块元数据获取（来自 block.json 的 input_statement）
+ * 3. 【回退】启发式规则（用于 Blockly 不可用时）
  */
 function getStatementInputs(block: any): string[] {
   if (!block.inputs) return [];
   
+  const inputNames = Object.keys(block.inputs);
   const result = new Set<string>();
   
-  // 1. 从动态块定义获取已知的语句输入名称
+  // 1. 优先从 Blockly 运行时查询（最可靠）
+  const runtimeInputs = queryStatementInputsFromBlockly(block.type);
+  if (runtimeInputs) {
+    for (const inputName of inputNames) {
+      if (runtimeInputs.has(inputName)) {
+        result.add(inputName);
+      }
+    }
+    // 运行时查询成功，直接返回
+    return Array.from(result);
+  }
+  
+  // 2. 从静态块元数据获取
   const dynamicMetas = getGlobalBlockMetas();
   if (dynamicMetas) {
     const meta = dynamicMetas.get(block.type);
     if (meta && meta.statementInputNames.length > 0) {
-      // 添加元数据中定义的语句输入（仅当块中实际存在时）
       for (const name of meta.statementInputNames) {
         if (block.inputs[name]) {
           result.add(name);
@@ -501,19 +716,10 @@ function getStatementInputs(block: any): string[] {
     }
   }
   
-  // 2. 从子块特征推断 - 检查子块是否是语句块
-  // 这能捕获 mutator 动态添加的语句输入（如 controls_switch 的 DO1, DO2...）
-  for (const [inputName, inputValue] of Object.entries(block.inputs)) {
-    const input = inputValue as any;
-    if (input?.block && isStatementBlock(input.block)) {
-      result.add(inputName);
-    }
-  }
-  
-  // 3. 启发式规则：通过输入名模式匹配补充
-  // 用于处理没有子块但名称模式明确是语句输入的情况
-  for (const inputName of Object.keys(block.inputs)) {
-    if (isLikelyStatementInput(inputName)) {
+  // 3. 启发式规则（回退方案）
+  // 仅当前面的方法都无法判断时使用
+  for (const inputName of inputNames) {
+    if (!result.has(inputName) && isLikelyStatementInput(inputName)) {
       result.add(inputName);
     }
   }
@@ -522,62 +728,14 @@ function getStatementInputs(block: any): string[] {
 }
 
 /**
- * 判断一个块是否是语句块（statement block）
+ * 【回退方案】判断输入名是否可能是语句输入
  * 
- * 语句块的特征：
- * 1. 没有 output（值块有 output）
- * 2. 有 previousStatement 和/或 nextStatement
- * 3. 已知的语句块类型
+ * 此函数仅在 Blockly 运行时不可用且静态元数据缺失时使用。
+ * 优先应使用 queryStatementInputsFromBlockly() 从 Blockly 运行时查询。
+ * 
+ * @deprecated 优先使用 Blockly 运行时查询
  */
-function isStatementBlock(block: any): boolean {
-  if (!block || !block.type) return false;
-  
-  // 如果从动态定义中可以判断
-  const dynamicMetas = getGlobalBlockMetas();
-  if (dynamicMetas) {
-    const meta = dynamicMetas.get(block.type);
-    if (meta) {
-      // 有输出的是值块，不是语句块
-      if (meta.hasOutput) return false;
-      // 明确有语句连接的是语句块
-      if (meta.hasPrevious || meta.hasNext) return true;
-    }
-  }
-  
-  // 已知的值块类型（这些块返回值，不是语句）
-  const knownValueBlocks = new Set([
-    'math_number', 'math_arithmetic', 'math_single', 'math_trig',
-    'math_constant', 'math_number_property', 'math_round', 'math_modulo',
-    'math_constrain', 'math_random_int', 'math_random_float',
-    'text', 'text_join', 'text_length', 'text_isEmpty', 'text_indexOf',
-    'text_charAt', 'text_getSubstring', 'text_changeCase', 'text_trim',
-    'logic_boolean', 'logic_compare', 'logic_operation', 'logic_negate', 'logic_ternary',
-    'variables_get',
-    'lists_create_with', 'lists_repeat', 'lists_length', 'lists_isEmpty',
-    'lists_indexOf', 'lists_getIndex', 'lists_split',
-    'colour_picker', 'colour_random', 'colour_rgb', 'colour_blend',
-  ]);
-  
-  if (knownValueBlocks.has(block.type)) {
-    return false;
-  }
-  
-  // 以常见前缀开头的块通常是值块
-  const valueBlockPrefixes = ['math_', 'text_', 'logic_', 'colour_', 'lists_'];
-  for (const prefix of valueBlockPrefixes) {
-    if (block.type.startsWith(prefix) && !block.type.includes('set') && !block.type.includes('print')) {
-      return false;
-    }
-  }
-  
-  // 默认认为是语句块
-  return true;
-}
-
-/**
- * 判断输入名是否可能是语句输入
- */
-function isLikelyStatementInput(inputName: string): boolean {
+export function isLikelyStatementInput(inputName: string): boolean {
   const patterns = [
     /^DO\d*$/,           // DO, DO0, DO1...
     /^ELSE$/,            // ELSE
@@ -595,7 +753,7 @@ function isLikelyStatementInput(inputName: string): boolean {
 /**
  * 规范化输入名用于 ABS 显示
  */
-function normalizeInputNameForAbs(inputName: string): string {
+export function normalizeInputNameForAbs(inputName: string): string {
   const mapping: Record<string, string> = {
     'DO0': 'do',
     'DO': 'do',
@@ -885,4 +1043,29 @@ export function formatAbs(abs: string): string {
     return convertAbiToAbs(result.abiJson, { includeHeader: false });
   }
   return abs;
+}
+
+/**
+ * 将单个块的 ABI JSON（来自 Blockly.serialization.blocks.save()）转换为 ABS 格式
+ * 包含整个块子树（含子块、next 链）
+ * 
+ * @param blockAbiJson 单个块的 ABI JSON 对象
+ * @param variables 工作区变量列表（用于将变量 ID 转为名称），格式 [{id, name, type}]
+ * @returns ABS 文本
+ */
+export function convertBlockTreeToAbs(
+  blockAbiJson: any,
+  variables?: { id: string; name: string; type?: string }[]
+): string {
+  const context = new ConversionContext('    ', false, true);
+
+  // 注册变量以支持 ID → 名称转换
+  if (variables) {
+    for (const v of variables) {
+      context.registerVariable(v.id, v.name, v.type || 'int');
+    }
+  }
+
+  const lines = convertBlockChainToAbs(blockAbiJson, 0, context);
+  return lines.join('\n');
 }

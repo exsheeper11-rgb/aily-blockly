@@ -9,10 +9,6 @@ import {
   SimpleChanges,
   ChangeDetectorRef,
 } from '@angular/core';
-// import { ChatService } from '../../services/chat.service';
-import { NzMessageService } from 'ng-zorro-antd/message';
-import { NzModalService } from 'ng-zorro-antd/modal';
-// import { SpeechService } from '../../services/speech.service';
 import { CommonModule } from '@angular/common';
 import { NzAvatarModule } from 'ng-zorro-antd/avatar';
 import { NzButtonModule } from 'ng-zorro-antd/button';
@@ -51,6 +47,7 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
   private lastContentLength = 0; // 跟踪上次处理的内容长度
   private lastProcessedContent = ''; // 跟踪上次处理的完整内容
   private contentList: Array<{ content: string, html: string }> = []; // 切分后的markdown内容列表
+  private processContentChain = Promise.resolve(); // 串行化 processContent，避免流式更新时重叠执行
 
   @ViewChild('contentDiv', { static: true }) contentDiv!: ElementRef<HTMLDivElement>;
 
@@ -79,9 +76,18 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
-  private async processContent() {
+  private processContent() {
+    this.processContentChain = this.processContentChain.then(() => this.processContentImpl()).catch(() => {});
+  }
+
+  private async processContentImpl() {
+    if (!this.content) return;
+
     // 过滤 think 标签内容，支持实时过滤
     let currentContent = this.filterThinkContent(this.content);
+
+    // 过滤 context / user-query 标签：折叠上下文，剥离 user-query 包裹
+    currentContent = this.filterContextTags(currentContent);
     
     // 对一些常见错误的处理，确保markdown格式正确
     currentContent = this.fixContent(currentContent);
@@ -96,13 +102,12 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
 
     // 如果是全新的内容或内容长度减少了（可能是重置），则清空并重新渲染
     if (processedContent.length < this.lastContentLength || this.lastProcessedContent === '') {
-      // console.log('全新内容渲染');
       await this.resetAndRenderAll(processedContent);
+      this.cd.detectChanges();
       return;
     }
 
     // 增量渲染
-    // console.log('增量渲染');
     await this.processIncrementalRender(processedContent);
 
     this.cd.detectChanges();
@@ -112,15 +117,14 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
    * 重置并重新渲染所有内容
    */
   private async resetAndRenderAll(currentContent: string): Promise<void> {
-    this.lastContentLength = 0;
-    this.lastProcessedContent = '';
+    this.lastContentLength = currentContent.length;
+    this.lastProcessedContent = currentContent;
     this.contentList = [];
 
     if (this.contentDiv?.nativeElement) {
       this.contentDiv.nativeElement.innerHTML = '';
     }
 
-    // 切分markdown内容并渲染
     await this.splitAndRenderContent(currentContent);
   }
 
@@ -257,16 +261,30 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
     return 'paragraph';
   }
 
+  private isMermaidCodeBlockWaiting(content: string): string | boolean {
+    if (content === '```aily-mermaid') {
+      return false;
+    }
+    return content.startsWith('```aily-mermaid') && !content.endsWith('```');
+  }
+
   /**
    * 切分并渲染内容
    */
   private async splitAndRenderContent(content: string): Promise<void> {
     try {
       // 切分内容
-      const segments = this.splitMarkdownContent(content);
+      const segments:any = this.splitMarkdownContent(content);
 
       // 为每个段落生成HTML
-      for (const segment of segments) {
+      for (let idx = 0; idx < segments.length; idx++) {
+        const segment = segments[idx];
+        const skipMermaid = this.isMermaidCodeBlockWaiting(segment.content);
+        if (skipMermaid) {
+          continue;
+        }
+        // 延迟100ms
+        // await new Promise(resolve => setTimeout(resolve, 100));
         const htmlObservable = this.markdownPipe.transform(segment.content);
         const safeHtml = await firstValueFrom(htmlObservable);
         segment.html = this.getHtmlString(safeHtml);
@@ -280,6 +298,8 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
 
       // 更新状态
       this.updateRenderState(content);
+
+      this.cd.detectChanges();
 
     } catch (error) {
       console.warn('Error in splitAndRenderContent:', error);
@@ -406,9 +426,13 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
     const container = this.contentDiv?.nativeElement;
     if (!container) return;
 
-    for (const segment of newSegments) {
+    for (let i = 0; i < newSegments.length; i++) {
+      const segment = newSegments[i];
       // 如果HTML还没有生成，先生成HTML
       if (!segment.html) {
+        if (this.isMermaidCodeBlockWaiting(segment.content)) {
+          continue;
+        }
         const htmlObservable = this.markdownPipe.transform(segment.content);
         const safeHtml = await firstValueFrom(htmlObservable);
         segment.html = this.getHtmlString(safeHtml);
@@ -434,6 +458,10 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
     const container = this.contentDiv?.nativeElement;
     if (!container || this.contentList.length === 0) {
       await this.renderContentList();
+      return;
+    }
+
+    if (this.isMermaidCodeBlockWaiting(modifiedSegment.content)) {
       return;
     }
 
@@ -481,14 +509,14 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
       if (thinkComponents.length > 0) {
         // 找到最后一个 think 组件（应该对应最后一个段落）
         const lastThinkComponent = thinkComponents[thinkComponents.length - 1];
-        
+
         // 创建临时容器来解析新的HTML，提取 think 占位符数据
         const newTempDiv = document.createElement('div');
         newTempDiv.innerHTML = modifiedSegment.html;
-        
+
         // 查找新HTML中的 think 占位符
         const newPlaceholder = newTempDiv.querySelector('.aily-code-block-placeholder[data-aily-type="aily-think"]') as HTMLElement;
-        
+
         if (newPlaceholder) {
           const encodedData = newPlaceholder.getAttribute('data-aily-data');
           if (encodedData) {
@@ -497,7 +525,7 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
               // 先解码 base64，然后解析 JSON
               const decodedData = safeBase64Decode(encodedData);
               const jsonData = JSON.parse(decodedData);
-              
+
               // 如果 content 是编码的，需要进一步解码（与 markdown pipe 的逻辑一致）
               let thinkContent = jsonData.content || jsonData.text || '';
               if (jsonData.encoded && typeof thinkContent === 'string') {
@@ -507,7 +535,7 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
                   console.warn('Failed to decode think content:', e);
                 }
               }
-              
+
               // 构建组件数据（与 markdown pipe 的输出格式一致）
               const componentData = {
                 type: 'aily-think',
@@ -515,14 +543,14 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
                 isComplete: jsonData.isComplete !== false,
                 metadata: jsonData.metadata || {}
               };
-              
+
               // 通过自定义事件通知组件更新
-              const updateEvent = new CustomEvent('think-data-update', { 
+              const updateEvent = new CustomEvent('think-data-update', {
                 detail: componentData,
-                bubbles: true 
+                bubbles: true
               });
               lastThinkComponent.dispatchEvent(updateEvent);
-              
+
               // 同时尝试直接设置 data 属性（如果组件支持）
               // 注意：这需要组件暴露 data 属性为 @Input() 或 public
               if ((lastThinkComponent as any).__ngContext__) {
@@ -532,7 +560,7 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
                   componentInstance.setData(componentData);
                 }
               }
-              
+
               // 不替换DOM，直接返回
               return;
             } catch (error) {
@@ -636,6 +664,9 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
     for (let i = startRenderIndex; i < newSegments.length; i++) {
       const segment = newSegments[i];
       if (!segment.html) {
+        if (this.isMermaidCodeBlockWaiting(segment.content)) {
+          continue;
+        }
         const htmlObservable = this.markdownPipe.transform(segment.content);
         const safeHtml = await firstValueFrom(htmlObservable);
         segment.html = this.getHtmlString(safeHtml);
@@ -748,7 +779,7 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
     let i = 0;
     let inThinkBlock = false;
     let thinkContent = '';
-    
+
     while (i < content.length) {
       // 检查是否遇到 <think> 标签
       if (!inThinkBlock && content.substring(i, i + 7) === '<think>') {
@@ -757,7 +788,7 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
         i += 7; // 跳过 <think>
         continue;
       }
-      
+
       // 检查是否遇到 </think> 标签
       if (inThinkBlock && content.substring(i, i + 8) === '</think>') {
         inThinkBlock = false;
@@ -777,17 +808,17 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
         i += 8; // 跳过 </think>
         continue;
       }
-      
+
       // 收集 think 块内的内容或添加到结果中
       if (inThinkBlock) {
         thinkContent += content[i];
       } else {
         result += content[i];
       }
-      
+
       i++;
     }
-    
+
     // 如果内容结束时仍在 think 块内（流式传输中），显示正在思考的状态
     if (inThinkBlock && thinkContent.trim()) {
       // 使用 base64 编码 content 避免换行符转义问题
@@ -800,8 +831,72 @@ export class DialogComponent implements OnInit, OnChanges, OnDestroy {
       // 确保代码块前后有正确的换行
       result += '```aily-think\n' + JSON.stringify(thinkData) + '\n```';
     }
-    
+
     return result;
+  }
+
+  /**
+   * 过滤 <context> 和 <user-query> 标签
+   * - <context>...</context> → 转为可折叠的 aily-context 代码块
+   * - <user-query>...</user-query> → 剥离标签，仅保留内部文本
+   */
+  private filterContextTags(content: string): string {
+    if (!content) return content;
+
+    // 1) 处理 <context>...</context> → 折叠式 HTML 块
+    content = content.replace(/<context>\n?([\s\S]*?)\n?<\/context>/g, (_match, inner: string) => {
+      const trimmed = inner.trim();
+      if (!trimmed) return '';
+
+      const label = this.extractContextLabel(trimmed);
+      // 转义 HTML 特殊字符，防止内容干扰 DOM
+      // 将换行符替换为 &#10; 实体，确保整个 <details> 在一行内，避免被 splitMarkdownContent 拆分
+      const escaped = trimmed
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/\n/g, '&#10;');
+
+      return `<details class="aily-context-block"><summary class="aily-context-summary"><i class="fa-light fa-cube"></i> ${label}</summary><pre class="aily-context-content">${escaped}</pre></details>`;
+    });
+
+    // 2) 剥离 <user-query>...</user-query> 标签
+    content = content.replace(/<user-query>([\s\S]*?)<\/user-query>/g, '$1');
+
+    return content;
+  }
+
+  /**
+   * 从上下文内容中提取简短标签用于折叠显示
+   * 优先提取 blockly 行号，其次统计文件/文件夹/URL 数量
+   */
+  private extractContextLabel(contextText: string): string {
+    const parts: string[] = [];
+
+    // 检查是否包含积木块上下文行号信息（C++ 和 ABS）
+    const cppLineMatch = contextText.match(/对应C\+\+代码行数:\s*(\S+)/);
+    const absLineMatch = contextText.match(/对应ABS代码行数:\s*(\S+)/);
+
+    if (cppLineMatch || absLineMatch) {
+      const lineParts: string[] = [];
+      if (absLineMatch) lineParts.push(`A${absLineMatch[1]}`);
+      if (cppLineMatch) lineParts.push(`C${cppLineMatch[1]}`);
+      parts.push(`blockly:${lineParts.join('/')}`);
+    }
+
+    // 统计参考文件数量
+    const fileMatches = contextText.match(/^- .+/gm);
+    if (fileMatches && contextText.includes('参考文件:')) {
+      const fileCount = contextText.split('参考文件:')[1]?.split('\n\n')[0]?.match(/^- /gm)?.length || 0;
+      if (fileCount > 0) parts.push(`${fileCount}个文件`);
+    }
+    if (contextText.includes('参考文件夹:')) {
+      const folderCount = contextText.split('参考文件夹:')[1]?.split('\n\n')[0]?.match(/^- /gm)?.length || 0;
+      if (folderCount > 0) parts.push(`${folderCount}个文件夹`);
+    }
+
+    return parts.length > 0 ? parts.join(' + ') : '附加上下文';
   }
 
   fixContent(content: string): string {

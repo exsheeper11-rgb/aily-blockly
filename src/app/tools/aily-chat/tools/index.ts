@@ -39,6 +39,7 @@ export { fetchTool, FetchToolService } from './fetchTool';
 export { todoWriteTool } from './todoWriteTool';
 export { syncAbsFileHandler } from './syncAbsFileTool';
 export { absVersionControlHandler } from './absVersionControlTool';
+export { getAbsSyntaxTool } from './getAbsSyntaxTool';
 // export { reloadAbiJsonTool, reloadAbiJsonToolSimple, reloadAbiJsonToolDirect, ReloadAbiJsonToolService } from './reloadAbiJsonTool';
 
 // 安全服务

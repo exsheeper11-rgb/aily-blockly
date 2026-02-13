@@ -197,7 +197,7 @@ export class BlocklyEditorComponent {
     if (this.blocklyService.checkAiWaiting()) {
       return;
     }
-    this.uiService.closeToolAll();
+    // this.uiService.closeToolAll();
     this.showLibraryManager = !this.showLibraryManager;
     this.cd.detectChanges();
   }
@@ -212,7 +212,7 @@ export class BlocklyEditorComponent {
           onClosed: () => this.onOnboardingClosed(),
           onCompleted: () => this.onOnboardingClosed()
         });
-      }, 800);
+      }, 500);
     }
   }
 

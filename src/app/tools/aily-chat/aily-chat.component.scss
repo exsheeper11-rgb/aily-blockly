@@ -240,6 +240,19 @@ nz-resize-handle {
       background-color: #444;
     }
 
+    &.block-item {
+      border-color: #d4a017;
+      background-color: rgba(212, 160, 23, 0.1);
+
+      &:hover {
+        background-color: rgba(212, 160, 23, 0.2);
+      }
+
+      i {
+        color: #d4a017;
+      }
+    }
+
     .resource-name {
       margin: 0 5px;
       color: #fff;

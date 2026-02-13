@@ -9,9 +9,8 @@ import { NzResizableModule, NzResizeEvent } from 'ng-zorro-antd/resizable';
 import { SubWindowComponent } from '../../components/sub-window/sub-window.component';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
-import { Subscription, skip, distinctUntilChanged } from 'rxjs';
-import { ChatService, ChatTextOptions, AVAILABLE_MODELS, ModelConfig } from './services/chat.service';
-import { ModelConfigOption } from './services/aily-chat-config.service';
+import { Subscription, skip, distinctUntilChanged, combineLatest } from 'rxjs';
+import { ChatService, ChatTextOptions, ModelConfig } from './services/chat.service';
 import { NzToolTipModule } from 'ng-zorro-antd/tooltip';
 import { MenuComponent } from '../../components/menu/menu.component';
 import { IMenuItem } from '../../configs/menu.config';
@@ -62,6 +61,7 @@ import {
 // ABS 工具 (Aily Block Syntax)
 // import { insertDslHandler, getDslHelpHandler } from './tools/dslTool';
 import { syncAbsFileHandler } from './tools/syncAbsFileTool';
+import { getAbsSyntaxTool } from './tools/getAbsSyntaxTool';
 // // 原子化块操作工具
 // import {
 //   createSingleBlockTool,
@@ -89,10 +89,14 @@ export interface Tool {
 }
 
 export interface ResourceItem {
-  type: 'file' | 'folder' | 'url';
+  type: 'file' | 'folder' | 'url' | 'block';
   path?: string;
   url?: string;
   name: string;
+  /** block 类型时存储 formatted 上下文信息（LLM 友好文本） */
+  blockContext?: string;
+  /** block 类型时存储关联的 blockId */
+  blockId?: string;
 }
 
 export interface ChatMessage {
@@ -201,14 +205,19 @@ export class AilyChatComponent implements OnDestroy {
   private aiWaitingSubscription: Subscription;
   private projectPathSubscription: Subscription; // 订阅项目路径变化
   private configChangedSubscription: Subscription; // 订阅配置变更
+  private blockSelectionSubscription: Subscription; // 订阅 Blockly 块选中事件
   private mcpInitialized = false; // 添加标志位防止重复初始化MCP
-  
+
   // 任务操作相关
   private taskActionHandler: ((event: Event) => void) | null = null;
   private lastStopReason: string = ''; // 保存上次停止原因用于重试
 
   get sessionId() {
     return this.chatService.currentSessionId;
+  }
+
+  set sessionId(value: string) {
+    this.chatService.currentSessionId = value;
   }
 
   get sessionTitle() {
@@ -1025,7 +1034,7 @@ Do not create non-existent boards and libraries.
     const securityWorkspaces = this.ailyChatConfigService.securityWorkspaces;
     const allowProjectPathAccess: boolean = securityWorkspaces.project;
     const allowNodeModulesAccess: boolean = securityWorkspaces.library;
-    
+
     // 使用会话期间保存的允许路径
     return createSecurityContext(this.getCurrentProjectPath(), {
       allowProjectPathAccess: allowProjectPathAccess,  // 默认允许访问当前项目路径
@@ -1114,6 +1123,14 @@ Do not create non-existent boards and libraries.
 
     this.aiWaitingSubscription = this.blocklyService.aiWaiting$.subscribe(this.showAiWritingNotice.bind(this));
 
+    // 订阅 Blockly 块选中变化 + 代码映射变化，自动添加/更新 block 上下文
+    this.blockSelectionSubscription = combineLatest([
+      this.blocklyService.selectedBlockSubject,
+      this.blocklyService.blockCodeMapSubject
+    ]).subscribe(([blockId, _codeMap]) => {
+      this.updateBlockContext(blockId);
+    });
+
     // 绑定任务操作事件监听
     this.taskActionHandler = this.handleTaskAction.bind(this);
     document.addEventListener('aily-task-action', this.taskActionHandler);
@@ -1126,21 +1143,21 @@ Do not create non-existent boards and libraries.
     ).subscribe(
       (newPath: string) => {
         console.log('[AilyChat] 项目路径变化:', newPath);
-        
+
         // 更新当前项目路径
         this.prjPath = newPath === this.projectService.projectRootPath ? '' : newPath;
         this.prjRootPath = this.projectService.projectRootPath;
-        
+
         // 根据新的项目路径重新加载聊天历史
         const targetPath = newPath || this.projectService.projectRootPath;
         this.chatService.openHistoryFile(targetPath);
         this.HistoryList = [...this.chatService.historyList].reverse();
-        
+
         // 初始化 ABS 自动同步服务
         if (newPath && newPath !== this.projectService.projectRootPath) {
           this.absAutoSyncService.initialize(newPath);
         }
-        
+
         console.log('[AilyChat] 历史记录已重新加载, 数量:', this.HistoryList.length);
       }
     );
@@ -1226,10 +1243,10 @@ Do not create non-existent boards and libraries.
     this.configChangedSubscription = this.ailyChatConfigService.configChanged$.subscribe(
       async (newConfig) => {
         // console.log('配置已变更:', newConfig);
-        
+
         // 判断当前会话是否有对话历史（排除系统默认消息）
         const hasConversationHistory = this.list.length > 0;
-        
+
         // 如果当前会话没有对话历史，则可以安全地重新启动会话以应用新配置
         if (!hasConversationHistory && this.sessionId && this.isLoggedIn) {
           // console.log('当前会话无对话历史，重新启动会话以应用新配置');
@@ -1408,7 +1425,7 @@ Do not create non-existent boards and libraries.
 
   /**
    * 清理最后一条 AI 消息中的流式残留内容
-   * 
+   *
    * 由于流式传输的延迟，agent 输出的终止标记（如 TERMINATE、[to_user]）
    * 和未完成的特殊代码块可能残留在消息中。此方法在对话终止时统一清理。
    */
@@ -1422,16 +1439,16 @@ Do not create non-existent boards and libraries.
 
     // 1. 移除终止标记及其前后空白（完整或部分）
     //    匹配 TERMINATE 的完整或部分出现（流式可能只传了前几个字符）
-    content = content.replace(/\s*\[?TERMINATE\]?\s*$/i, '');
-    content = content.replace(/\s*\[to_user\]\s*$/i, '');
-    // 部分终止标记（如 "TERMI", "TERMINA" 等出现在末尾）
-    const terminatePartials = ['TERMINAT', 'TERMINA', 'TERMIN', 'TERMI', 'TERM'];
-    for (const partial of terminatePartials) {
-      if (content.trimEnd().endsWith(partial)) {
-        content = content.substring(0, content.lastIndexOf(partial)).trimEnd();
-        break;
-      }
-    }
+    // content = content.replace(/\s*\[?TERMINATE\]?\s*$/i, '');
+    // content = content.replace(/\s*\[to_user\]\s*$/i, '');
+    // // 部分终止标记（如 "TERMI", "TERMINA" 等出现在末尾）
+    // const terminatePartials = ['TERMINAT', 'TERMINA', 'TERMIN', 'TERMI', 'TERM'];
+    // for (const partial of terminatePartials) {
+    //   if (content.trimEnd().endsWith(partial)) {
+    //     content = content.substring(0, content.lastIndexOf(partial)).trimEnd();
+    //     break;
+    //   }
+    // }
 
     // 2. 检查三个连续 ``` 的组数，若为单数则移除最后一个 ``` 及其后面的内容（未闭合的代码块）
     const tripleBacktickGroups = content.match(/```/g);
@@ -1447,6 +1464,39 @@ Do not create non-existent boards and libraries.
     }
   }
 
+  /**
+   * 在 text 中查找 TERMINATE 前缀的起始位置（可能前面有其它字符）。
+   * 例如 "ACTER" 中 "TER" 是 TERMINATE 的前缀，返回 2。
+   */
+  private findTerminatePrefixStart(text: string, target: string): number {
+    for (let i = 0; i < text.length; i++) {
+      const suffix = text.slice(i);
+      if (target.startsWith(suffix)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  setLastMsgContent(role, text) {
+    if (this.list.length > 0 && this.list[this.list.length - 1].role === role) {
+      this.list[this.list.length - 1].content += text;
+      // 如果是AI角色且正在输出，保持doing状态
+      if (role === 'aily' && this.isWaiting) {
+        this.list[this.list.length - 1].state = 'doing';
+      }
+    } else {
+      this.list.push({
+        "role": role,
+        "content": text,
+        "state": (role === 'aily' && this.isWaiting) ? 'doing' : 'done'
+      });
+    }
+    this.chatService.historyChatMap.set(this.sessionId, this.list);
+  }
+
+  terminateTemp = '';
+
   appendMessage(role, text) {
     // console.log("添加消息: ", role, text);
 
@@ -1460,25 +1510,29 @@ Do not create non-existent boards and libraries.
       // 保持原样
     }
 
-    // 检查是否存在消息列表，且最后一条消息的role与当前role相同
-    if (this.list.length > 0 && this.list[this.list.length - 1].role === role) {
-      // 如果是同一个role，追加内容到最后一条消息
-      this.list[this.list.length - 1].content += text;
-      // 如果是AI角色且正在输出，保持doing状态
-      if (role === 'aily' && this.isWaiting) {
-        this.list[this.list.length - 1].state = 'doing';
+    text = text.replace(/```/g, '\n```');
+
+    // 如果text是TER MIN ATE
+    const terminateText = 'TERMINATE';
+    if (this.terminateTemp) {
+      this.terminateTemp += text;
+      if (terminateText.startsWith(this.terminateTemp)) {
+        return;
       }
-    } else {
-      // console.log("添加新消息: ", role);
-      // 如果是不同的role或列表为空，创建新的消息
-      const state = (role === 'aily' && this.isWaiting) ? 'doing' : 'done';
-      this.list.push({
-        "role": role,
-        "content": text,
-        "state": state
-      });
+      this.setLastMsgContent(role, this.terminateTemp);
+      this.terminateTemp = '';
+      return;
     }
-    this.chatService.historyChatMap.set(this.sessionId, this.list);
+    let prefixStart = this.findTerminatePrefixStart(text, terminateText);
+    if (prefixStart >= 0) {
+      this.terminateTemp += text.substring(prefixStart);
+      text = text.substring(0, prefixStart);
+      this.setLastMsgContent(role, text);
+      return;
+    }
+
+    this.setLastMsgContent(role, text);
+    this.terminateTemp = '';
   }
 
   /**
@@ -1494,7 +1548,7 @@ Do not create non-existent boards and libraries.
       // 使用会话创建时记录的路径，确保历史记录保存到发起会话的位置
       // 如果没有记录的路径，才使用当前项目路径作为后备
       const prjPath = this.chatService.currentSessionPath || this.projectService.currentProjectPath || this.projectService.projectRootPath;
-      
+
       if (!prjPath) {
         console.warn('无法获取项目路径，跳过保存会话');
         return;
@@ -1510,17 +1564,26 @@ Do not create non-existent boards and libraries.
 
       // 保存历史列表索引文件
       this.chatService.saveHistoryFile(prjPath);
-      
+
       // 保存聊天记录到 .chat_history 文件夹
       this.chatService.saveSessionChatHistory(prjPath, this.sessionId, this.list);
-      
+
       // console.log('会话已保存:', this.sessionId, '路径:', prjPath);
     } catch (error) {
       console.warn('保存会话失败:', error);
     }
   }
 
+  debug = false; // TODO 用于测试本地流式数据，生产不要提交true！！！
+
   async startSession(): Promise<void> {
+    if (this.debug) {
+      this.sessionId = new Date().getTime().toString();
+      this.isWaiting = true;
+      this.streamConnect();
+      return;
+    }
+
     // 如果会话正在启动中，直接返回
     if (this.isSessionStarting) {
       // console.log('startSession 被跳过: 会话正在启动中');
@@ -1537,13 +1600,13 @@ Do not create non-existent boards and libraries.
     if (!this.mcpInitialized) {
       this.mcpInitialized = true;
       await this.mcpService.init();
-      
+
       // 延迟加载硬件索引数据（用于 AI 工具的开发板/库搜索）
       this.configService.loadHardwareIndexForAI().catch(err => {
         console.warn('[AilyChat] 加载硬件索引失败:', err);
       });
     }
-    
+
     // // 会话开始时自动导出 ABS 文件（无感同步）
     // const currentPath = this.getCurrentProjectPath();
     // if (currentPath) {
@@ -1555,22 +1618,22 @@ Do not create non-existent boards and libraries.
 
     // tools + mcp tools
     this.isCompleted = false;
-    
+
     // 根据配置过滤启用的工具
     const enabledToolNames = this.ailyChatConfigService.enabledTools;
     const disabledToolNames = this.ailyChatConfigService.disabledTools || [];
     const hasEnabledToolsConfig = enabledToolNames && enabledToolNames.length > 0;
-    
+
     // 过滤工具逻辑：
     // 1. 如果没有配置，使用全部工具
     // 2. 如果有配置，启用的工具 + 新工具（不在禁用列表中的未知工具）
-    let tools = hasEnabledToolsConfig 
-      ? this.tools.filter(tool => 
-          enabledToolNames.includes(tool.name) || 
+    let tools = hasEnabledToolsConfig
+      ? this.tools.filter(tool =>
+          enabledToolNames.includes(tool.name) ||
           (!disabledToolNames.includes(tool.name) && !enabledToolNames.includes(tool.name))
         )
       : this.tools;
-    
+
     let mcpTools = this.mcpService.tools.map(tool => {
       if (!tool.name.startsWith("mcp_")) {
         tool.name = "mcp_" + tool.name;
@@ -1580,7 +1643,7 @@ Do not create non-existent boards and libraries.
     if (mcpTools && mcpTools.length > 0) {
       tools = tools.concat(mcpTools);
     }
-    
+
     // 获取 maxCount 配置
     const maxCount = this.ailyChatConfigService.maxCount;
 
@@ -1695,7 +1758,7 @@ ${JSON.stringify(errData)}
       return;
     }
 
-    this.send('user', this.inputValue.trim(), true);
+    await this.send('user', this.inputValue.trim(), true);
     // 将用户添加的上下文路径保存到会话允许路径中
     this.mergeSelectContentToSessionPaths();
     this.selectContent = [];
@@ -1712,7 +1775,7 @@ ${JSON.stringify(errData)}
       console.log('任务已取消，忽略工具结果消息');
       return;
     }
-    
+
     if (this.isCompleted) {
       // console.log('上次会话已完成，需要重新启动会话');
       // 重置取消标志，开始新会话
@@ -1722,6 +1785,7 @@ ${JSON.stringify(errData)}
 
     // 发送消息时重新启用自动滚动
     this.autoScrollEnabled = true;
+    this.terminateTemp = '';
 
     let text = content.trim();
     if (!this.sessionId || !text) return;
@@ -1823,7 +1887,7 @@ ${JSON.stringify(errData)}
   stop() {
     // 标记任务已取消，防止后续工具结果触发重连
     this.isCancelled = true;
-    
+
     // 设置最后一条AI消息状态为done（如果存在）
     if (this.list.length > 0 && this.list[this.list.length - 1].role === 'aily') {
       this.list[this.list.length - 1].state = 'done';
@@ -1855,7 +1919,7 @@ ${JSON.stringify(errData)}
       this.messageSubscription = null;
     }
 
-    this.messageSubscription = this.chatService.streamConnect(this.sessionId).subscribe({
+    this.messageSubscription = (this.debug ? this.chatService.debugStream(this.sessionId) : this.chatService.streamConnect(this.sessionId)).subscribe({
       next: async (data: any) => {
         // 记录流式数据到文件（Unicode 转中文）
         // try {
@@ -1869,7 +1933,7 @@ ${JSON.stringify(errData)}
         // } catch (logErr) {
         //   console.warn('写入日志文件失败:', logErr);
         // }
-        
+
         // console.log("当前是否处于等待状态： ", this.isWaiting)
         if (!this.isWaiting) {
           return; // 如果不在等待状态，直接返回
@@ -1996,7 +2060,7 @@ ${JSON.stringify(errData)}
             let resultState = "done";
             let resultText = '';
 
-            // console.log("工具调用请求: ", data.tool_name, toolArgs);
+            console.log("工具调用请求: ", data.tool_name, toolArgs);
 
             // 定义 block 工具列表
             const blockTools = [
@@ -3006,7 +3070,7 @@ ${JSON.stringify(errData)}
                     } else {
                       const op = toolArgs.operation;
                       // export 时不显示状态
-                      resultText = op === 'import' ? '加载 图形化代码 完成' 
+                      resultText = op === 'import' ? '加载 图形化代码 完成'
                         // : op === 'status' ? 'ABS 状态查询完成'
                         : '';  // status 与 export 不显示
                     }
@@ -3322,6 +3386,25 @@ ${JSON.stringify(errData)}
                       }
                     }
                     break;
+                  case 'get_abs_syntax':
+                    this.appendMessage('aily', `
+
+\`\`\`aily-state
+{
+  "state": "doing",
+  "text": "了解 ABS语法规范...",
+  "id": "${toolCallId}"
+}
+\`\`\`\n\n
+                    `);
+                    toolResult = await getAbsSyntaxTool();
+                    if (toolResult?.is_error) {
+                      resultState = "error";
+                      resultText = `了解 ABS语法规范 失败`;
+                    } else {
+                      resultText = '了解 ABS语法规范 完成';
+                    }
+                    break;
                   //                   case 'arduino_syntax_check':
                   //                     console.log('🔍 [Arduino语法检查工具被调用]', toolArgs);
 
@@ -3422,43 +3505,81 @@ ${JSON.stringify(errData)}
                 newProject = false;
                 // Blockly 工具失败时：同时包含 keyInfo 和 rules
                 // toolContent += `\n${keyInfo}\n
-// 【ABS编写规范】 
+// 【ABS编写规范】
 // - 字段(field)直接写值：field_dropdown写枚举\`HIGH\`、field_input写字符串\`"dht"\`、field_number写数字\`9600\`、field_variable写\`$varName\`
 // - 值输入(input_value)必须连接值块：数字用\`math_number(10)\`、文本用\`text("Hello")\`、布尔用\`logic_boolean(TRUE)\`、变量用\`$varName\`(自动创建variables_get)
 // - 语句输入(input_statement)用4空格缩进子块表示
 // - 多输入块用\`@输入名:\`标记：如controls_if的\`@IF0:\`/\`@DO0:\`/\`@ELSE:\`
 // - 空括号不可省略：\`block_name()\`
+
+// Blockly块操作规范流程（ABS模式），**严格遵守**：
+
+// 【核心原则】
+// 所有块操作统一通过ABS文件进行：创建=添加ABS代码行，修改=编辑参数，删除=移除代码行
+
+// 【准备阶段】
+// 1. 使用todo_write_tool规划当前项目流程
+// 2. 使用get_workspace_overview_tool分析当前工作区，获取ABS代码和变量列表
+// 3. 列出所有需要使用的库（必须包含\`lib-core-*\`系列核心库：logic、variables、time、math等）
+// 4. 逐一阅读各库readme_ai.md了解块定义和ABS语法，readme不存在则可直接读取库文件分析块定义
+// 5. 如果当前已安装的库不满足需求，则使用search_boards_libraries工具查询库并进行安装，安装完成后重新执行步骤1-4
+
+// 【创建/修改阶段】
+// 1. **完整规划代码逻辑**，先在脑中构思完整的ABS结构
+// 2. 使用sync_abs_file工具的export操作获取当前代码
+// 3. 编辑ABS代码：添加新块、修改参数、调整结构
+// 4. 使用sync_abs_file工具的import操作导入修改后的ABS
+// 5. 仔细分析错误信息，定位并修复ABS代码问题
+// 6. 如果库功能不完善，安装lib-core-custom自定义库，重复步骤2-5直至完成
+
+// 【修复原则】
+// - 诊断优先：分析get_workspace_overview_tool返回的ABS代码，定位问题
+// - 最小改动：只修改需要变更的ABS行，保持其他结构不变
+// - 增量更新：sync_abs_file支持增量更新，只会修改变化的块
+// - 错误处理：导入失败时检查ABS语法，特别是变量前缀\`$\`和括号匹配
+
+// 【执行要求】
+// - 深入分析嵌入式代码逻辑和硬件特性，确保逻辑正确
+// - ABS代码保持清晰的缩进和换行，便于阅读和调试
+// - 复杂结构分步创建，先创建外层再填充内层
+// - 使用get_abs_syntax工具了解ABS语法规范，确保代码符合要求
                 toolContent += `
-<rules>Blockly块操作规范流程（ABS模式），**严格遵守**：
+<rules>
+【需求分析】
+仔细分析用户需求，理解要实现的功能和目标。对于不明确的需求，提出澄清问题。
 
-【核心原则】
-所有块操作统一通过ABS文件进行：创建=添加ABS代码行，修改=编辑参数，删除=移除代码行
+【设计方案】
+使用工具了解当前工作区信息，仔细查询可使用的开发板和库，设计实现方案。方案设计要考虑功能实现的可行性、效率和可维护性。
+- 严禁假设应该使用的库或工具，必须通过工具查询确认。
+- 方案设计完成后输出完整方案设计及实现步骤。
+- 项目创建或者库安装必须询问用户确认。
 
-【准备阶段】
-1. 使用todo_write_tool规划当前项目流程
-2. 使用get_workspace_overview_tool分析当前工作区，获取ABS代码和变量列表
-3. 列出所有需要使用的库（必须包含\`lib-core-*\`系列核心库：logic、variables、time、math等）
-4. 逐一阅读各库readme_ai.md了解块定义和ABS语法
-5. 如果当前已安装的库不满足需求，则查询并安装所需库，安装完成后重新执行步骤1-4
+【准备工作】
+1. 使用分析当前工作区及当前项目状态，了解现有资源，确保项目已创建、库已安装。
+2. 安装所需库，确保所有依赖库已正确安装。
+3. 使用todo_write_tool规划项目流程，明确每一步要实现的功能和使用的工具。
+4. 列出需要使用的库，必须包含\`lib-core-*\`等核心库（如lib-core-logic、lib-core-variables等）。如果需要新库，使用search_boards_libraries工具查询并安装。
+5. 逐一阅读库的readme_ai.md，了解块定义和ABS语法。没有readme的库需要直接分析库文件获取信息。
+6. 使用get_abs_syntax工具了解ABS语法规范，确保代码符合要求。
 
-【创建/修改阶段】
-1. **完整规划代码逻辑**，先在脑中构思完整的ABS结构
-2. 使用sync_abs_file工具的export操作获取当前代码
-3. 编辑ABS代码：添加新块、修改参数、调整结构
-4. 使用sync_abs_file工具的import操作导入修改后的ABS
-5. 检查工具反馈，如果失败则分析错误信息，修正ABS代码后重新导入
-6. 如果库功能不完善，安装lib-core-custom自定义库，重复步骤2-5直至完成
+【实现阶段】
+1. 完整规划代码逻辑，构思ABS结构。
+2. 使用sync_abs_file工具的export操作获取当前代码。
+3. 编辑ABS代码：添加新块、修改参数、调整结构。遵守ABS编写规范，确保字段直接写值，输入连接值块，语句输入用缩进，多输入块用标记，空括号不可省略。
+4. 使用sync_abs_file工具的import操作导入修改后的ABS。
+5. 仔细分析错误信息，定位并修复ABS代码问题。遵循修复原则：诊断优先、最小改动、错误处理。
+6. 如果库功能不完善，安装lib-core-custom自定义库，重复步骤2-5直至完成。
 
 【修复原则】
-- 诊断优先：分析get_workspace_overview_tool返回的ABS代码，定位问题
-- 最小改动：只修改需要变更的ABS行，保持其他结构不变
-- 增量更新：sync_abs_file支持增量更新，只会修改变化的块
-- 错误处理：导入失败时检查ABS语法，特别是变量前缀\`$\`和括号匹配
+- 诊断优先：分析报错，定位问题，语法错误还是逻辑错误。
+- 最小改动：只修改需要变更的ABS行，保持其他结构不变。
+- 错误处理：读取库文件了解块定义和ABS语法，确保修复正确。
 
 【执行要求】
-- 深入分析嵌入式代码逻辑和硬件特性，确保逻辑正确
-- ABS代码保持清晰的缩进和换行，便于阅读和调试
-- 复杂结构分步创建，先创建外层再填充内层</rules>
+- 安装操作必须询问用户确认，确保用户了解安装的库和功能。
+- 深入分析嵌入式代码逻辑和硬件特性，确保逻辑正确。
+- ABS代码保持清晰的缩进和换行，便于阅读和调试。
+</rules>
 <toolResult>${toolResult?.content}</toolResult>\n<info>如果想结束对话，转交给用户，可以使用[to_xxx]，这里的xxx为user</info>`;
               } else if (shouldIncludeKeyInfo) {
                 // 需要路径信息的工具 或 工具失败时：只包含 keyInfo
@@ -3493,7 +3614,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
               this.completeToolCall(data.tool_id, data.tool_name, finalState, resultText);
             }
 
-            // console.log(`工具调用结果: `, toolResult, resultText);
+            console.log(`工具调用结果: `, toolResult, resultText);
 
             this.send("tool", JSON.stringify({
               "type": "tool",
@@ -3515,7 +3636,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
             // 1. Text 'TERMINATE' mentioned - 正常结束，由 complete 回调处理状态
             // 2. Maximum number of messages - 需要显示继续对话提示
             // 3. 其他异常 - 需要显示重试提示
-            
+
             // 先清理流式残留内容（TERMINATE 文字、未闭合的代码块等）
             this.cleanupLastAiMessage();
 
@@ -3526,10 +3647,10 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
               // 解析最大消息数
               const maxMessagesMatch = stopReason.match(/(\d+)\s*reached/);
               const maxMessages = maxMessagesMatch ? parseInt(maxMessagesMatch[1], 10) : 10;
-              
+
               // 保存当前停止原因用于继续对话
               this.lastStopReason = stopReason;
-              
+
               // 显示提示信息，询问是否继续
               this.appendMessage('aily', `
 
@@ -3547,7 +3668,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
             } else {
               // 保存当前停止原因用于重试
               this.lastStopReason = stopReason;
-              
+
               // 显示报错，并提供重试按钮
               this.appendMessage('aily', `
 \`\`\`aily-error
@@ -3655,7 +3776,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
 
     this.list = [];
     // console.log('获取历史消息，sessionId:', this.sessionId);
-    
+
     // 优先从内存缓存中获取
     if (this.chatService.historyChatMap.get(this.sessionId)) {
       const cachedHistory = this.chatService.historyChatMap.get(this.sessionId);
@@ -3734,7 +3855,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
           return;
         }
 
-        this.send("user", this.inputValue.trim(), true);
+        await this.send("user", this.inputValue.trim(), true);
         // 将用户添加的上下文路径保存到会话允许路径中
         this.mergeSelectContentToSessionPaths();
         this.selectContent = [];
@@ -4051,9 +4172,9 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
   private handleTaskAction(event: Event): void {
     const customEvent = event as CustomEvent;
     const { action, data } = customEvent.detail || {};
-    
+
     // console.log('收到任务操作事件:', action, data);
-    
+
     switch (action) {
       case 'continue':
         this.continueConversation();
@@ -4081,12 +4202,12 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
       this.message.warning('正在处理中，请稍候...');
       return;
     }
-    
+
     if (!this.sessionId) {
       this.message.warning('会话不存在，请开始新对话');
       return;
     }
-    
+
     // 发送继续消息
     const continueMessage = '请继续完成之前的任务。';
     await this.send('user', continueMessage, false);
@@ -4100,12 +4221,12 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
       this.message.warning('正在处理中，请稍候...');
       return;
     }
-    
+
     if (!this.sessionId) {
       this.message.warning('会话不存在，请开始新对话');
       return;
     }
-    
+
     // 发送重试消息
     const retryMessage = '请重试上次的操作。';
     await this.send('user', retryMessage, false);
@@ -4229,6 +4350,30 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
   }
 
   /**
+   * 根据块选中状态更新 block 上下文资源项
+   * 选中时自动添加/更新，取消选中时自动移除
+   */
+  private updateBlockContext(blockId: string | null): void {
+    // 先移除旧的 block 上下文项
+    this.selectContent = this.selectContent.filter(item => item.type !== 'block');
+
+    if (!blockId) return;
+
+    // 获取块的上下文标签信息
+    const ctxLabel = this.blocklyService.getSelectedBlockContextLabel();
+    if (!ctxLabel) return;
+
+    this.selectContent.push({
+      type: 'block',
+      name: ctxLabel.label,
+      blockContext: ctxLabel.formatted,
+      blockId: ctxLabel.blockId
+    });
+
+    console.log('更新块上下文资源项:', ctxLabel);
+  }
+
+  /**
    * 清空所有资源
    */
   clearAllResources() {
@@ -4263,6 +4408,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
     const fileItems = this.selectContent.filter(item => item.type === 'file');
     const folderItems = this.selectContent.filter(item => item.type === 'folder');
     const urlItems = this.selectContent.filter(item => item.type === 'url');
+    const blockItems = this.selectContent.filter(item => item.type === 'block');
 
     let text = '';
 
@@ -4281,6 +4427,12 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
     if (urlItems.length > 0) {
       text += '参考URL:\n';
       text += urlItems.map(item => `- ${item.url}`).join('\n');
+      text += '\n\n';
+    }
+
+    if (blockItems.length > 0) {
+      // text += '用户选中的积木块上下文:\n';
+      text += blockItems.map(item => item.blockContext || item.name).join('\n');
       text += '\n\n';
     }
 
@@ -4499,7 +4651,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
           onClosed: () => this.onOnboardingClosed(),
           onCompleted: () => this.onOnboardingClosed()
         });
-      }, 800);
+      }, 500);
     }
   }
 
@@ -4558,6 +4710,12 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
       this.configChangedSubscription = null;
     }
 
+    // 清理块选中订阅
+    if (this.blockSelectionSubscription) {
+      this.blockSelectionSubscription.unsubscribe();
+      this.blockSelectionSubscription = null;
+    }
+
     // 清理任务操作事件监听
     if (this.taskActionHandler) {
       document.removeEventListener('aily-task-action', this.taskActionHandler);
@@ -4595,7 +4753,7 @@ Your role is ASK (Advisory & Quick Support) - you provide analysis, recommendati
   onSettingsSaved() {
     // 关闭设置面板
     this.showSettings = false;
-    
+
     // 注意：配置生效逻辑已由 configChanged$ 订阅处理
     // 这里不需要额外操作，消息提示会在订阅中统一处理
   }
