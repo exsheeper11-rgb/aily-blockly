@@ -1,7 +1,7 @@
 {
   "name": "aily-blockly",
   "productName": "aily blockly",
-  "version": "0.9.25",
+  "version": "0.9.26",
   "author": "coloz",
   "description": "aily blockly dev",
   "main": "electron/main.js",
@@ -111,7 +111,7 @@
       "allowElevation": true,
       "deleteAppDataOnUninstall": true,
       "include": "build/installer.nsh",
-      "runAfterFinish": false,
+      "runAfterFinish": true,
       "differentialPackage": false,
       "artifactName": "aily-blockly-Setup-${version}.${ext}",
       "createStartMenuShortcut": true,
