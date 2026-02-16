@@ -251,9 +251,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 任务 4：上传文件到 Cloudflare R2 存储（与Release并行执行）
-  upload-to-r2:
-    needs: [build-windows, build-macos]
+  # 任务 4a：上传 Windows 文件到 Cloudflare R2 存储（与Release并行执行）
+  upload-windows-to-r2:
+    needs: [build-windows]
     runs-on: ubuntu-latest
     steps:
       - name: Download Windows Artifact
@@ -261,12 +261,6 @@ jobs:
         with:
           name: AilyBlockly-Windows-Package
           path: ./artifacts/windows
-
-      - name: Download macOS Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: AilyBlockly-macOS-Package
-          path: ./artifacts/macos
 
       - name: Ensure AWS CLI is available
         run: |
@@ -277,7 +271,7 @@ jobs:
           fi
           aws --version
 
-      - name: Upload files to Cloudflare R2 (non-yml files first, yml files last)
+      - name: Upload Windows files to Cloudflare R2
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -294,10 +288,10 @@ jobs:
           # Cloudflare R2 endpoint
           R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
           
-          echo "准备上传文件到 Cloudflare R2..."
+          echo "准备上传 Windows 文件到 Cloudflare R2..."
           
           # 先上传 Windows 安装包
-          echo "上传 Windows 文件..."
+          echo "上传 Windows exe 文件..."
           for file in ./artifacts/windows/*.exe; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
@@ -307,6 +301,56 @@ jobs:
                 --content-type "application/x-msdownload"
             fi
           done
+          
+          # 最后上传 latest.yml（确保安装包已上传完成）
+          echo "上传 latest.yml 配置文件..."
+          if [ -f "./artifacts/windows/latest.yml" ]; then
+            aws s3 cp "./artifacts/windows/latest.yml" "s3://${R2_BUCKET_NAME}/${R2_UPLOAD_PATH}/latest.yml" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --content-type "text/yaml"
+          fi
+          
+          echo "✓ Windows 文件上传到 Cloudflare R2 完成"
+          echo "公开访问地址: ${R2_PUBLIC_URL}"
+
+  # 任务 4b：上传 macOS 文件到 Cloudflare R2 存储（与Release并行执行）
+  upload-macos-to-r2:
+    needs: [build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: AilyBlockly-macOS-Package
+          path: ./artifacts/macos
+
+      - name: Ensure AWS CLI is available
+        run: |
+          if ! command -v aws &> /dev/null; then
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip awscliv2.zip
+            sudo ./aws/install
+          fi
+          aws --version
+
+      - name: Upload macOS files to Cloudflare R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_UPLOAD_PATH: ${{ secrets.R2_UPLOAD_PATH }}
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+        run: |
+          # 配置 AWS CLI 使用 Cloudflare R2
+          aws configure set aws_access_key_id "$R2_ACCESS_KEY_ID"
+          aws configure set aws_secret_access_key "$R2_SECRET_ACCESS_KEY"
+          aws configure set default.region auto
+          
+          # Cloudflare R2 endpoint
+          R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          
+          echo "准备上传 macOS 文件到 Cloudflare R2..."
           
           # 上传 macOS 安装包
           echo "上传 macOS 文件..."
@@ -328,19 +372,15 @@ jobs:
             fi
           done
           
-          # 最后上传 yml 配置文件（确保安装包已上传完成）
-          echo "上传 yml 配置文件..."
-          for file in ./artifacts/windows/latest.yml ./artifacts/macos/latest-mac.yml; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              echo "  上传: $filename"
-              aws s3 cp "$file" "s3://${R2_BUCKET_NAME}/${R2_UPLOAD_PATH}/${filename}" \
-                --endpoint-url "$R2_ENDPOINT" \
-                --content-type "text/yaml"
-            fi
-          done
+          # 最后上传 latest-mac.yml（确保安装包已上传完成）
+          echo "上传 latest-mac.yml 配置文件..."
+          if [ -f "./artifacts/macos/latest-mac.yml" ]; then
+            aws s3 cp "./artifacts/macos/latest-mac.yml" "s3://${R2_BUCKET_NAME}/${R2_UPLOAD_PATH}/latest-mac.yml" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --content-type "text/yaml"
+          fi
           
-          echo "✓ 文件上传到 Cloudflare R2 完成"
+          echo "✓ macOS 文件上传到 Cloudflare R2 完成"
           echo "公开访问地址: ${R2_PUBLIC_URL}"
 
   # 原有的 SSH 上传方式已注释（备用）
@@ -390,7 +430,7 @@ jobs:
 
   # 任务 5：触发服务器脚本
   trigger-server-script:
-    needs: [upload-to-r2]
+    needs: [upload-windows-to-r2, upload-macos-to-r2]
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Server Script
