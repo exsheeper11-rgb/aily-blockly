@@ -1,4 +1,4 @@
-import { ChangeDetectorRef, Component, ViewChild, ElementRef, AfterViewInit, OnDestroy, viewChild, viewChildren, signal, effect, untracked, DestroyRef, inject } from '@angular/core';
+import { ChangeDetectorRef, ChangeDetectionStrategy, Component, ViewChild, ElementRef, AfterViewInit, OnDestroy, viewChild, viewChildren, signal, effect, untracked, DestroyRef, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NzSelectModule } from 'ng-zorro-antd/select';
 import { FormsModule } from '@angular/forms';
@@ -59,6 +59,7 @@ import { ElectronService } from '../../services/electron.service';
   ],
   templateUrl: './serial-monitor.component.html',
   styleUrl: './serial-monitor.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SerialMonitorComponent {
   private destroyRef = inject(DestroyRef);
@@ -469,7 +470,7 @@ export class SerialMonitorComponent {
   }
 
   clearView() {
-    this.serialMonitorService.dataList = [];
+    this.serialMonitorService.clearData();
     this.dataCount.set(0);
     this.cd.detectChanges();
     // 清空图表数据
