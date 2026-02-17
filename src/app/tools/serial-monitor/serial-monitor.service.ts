@@ -465,6 +465,8 @@ export interface dataItem {
   data: any,
   dir: 'TX' | 'RX' | 'SYS',
   searchHighlight?: boolean,
+  showHex?: boolean,
+  highlight?: boolean,
 }
 
 export interface QuickSendItem {

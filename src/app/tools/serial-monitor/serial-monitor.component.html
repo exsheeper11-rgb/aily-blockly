@@ -83,7 +83,8 @@
                        class="virtual-item"
                        [style.transform]="'translateY(' + row.start + 'px)'">
                     <app-data-item [data]="dataList[row.index]" [searchKeyword]="searchKeyword"
-                      (click)="onDataItemClick(dataList[row.index])"></app-data-item>
+                      (click)="onDataItemClick(dataList[row.index])"
+                      (contextmenu)="onDataItemContextMenu($event, dataList[row.index])"></app-data-item>
                   </div>
                 }
               }
@@ -206,4 +207,10 @@
 @if (showBaudList) {
 <app-menu [position]="position" [menuList]="baudList" (closeEvent)="closeBaudList()"
   (itemClickEvent)="selectBaud($event)"></app-menu>
+}
+
+<!-- data item context menu -->
+@if (showContextMenu) {
+<app-menu [menuList]="contextMenuItems" [position]="contextMenuPosition" [width]="125"
+  (closeEvent)="closeContextMenu()" (itemClickEvent)="contextMenuClick($event)"></app-menu>
 }

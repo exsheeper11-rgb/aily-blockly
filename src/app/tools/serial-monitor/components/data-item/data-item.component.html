@@ -1,5 +1,5 @@
 @if (viewMode.showTimestamp) {
-<div class="item" [ngClass]="{'highlight': showHighlight, 'search-active': data.searchHighlight}">
+<div class="item" [ngClass]="{'highlight': data.highlight, 'search-active': data.searchHighlight}">
   <!-- @if (viewMode.showTimestamp) { -->
   <div class="time">{{ data.time }}</div>
   <div class="dir" [ngClass]="{ 'tx': data.dir == 'TX','sys':data.dir=='SYS' }">
@@ -7,7 +7,7 @@
   </div>
   <div class="data vsfont"
     [ngClass]="{ 'tx': data.dir == 'TX', 'sys':data.dir == 'SYS', error: data.data.includes('error:'),'nowrap': !viewMode.autoWrap }"
-    [innerHTML]="viewMode.showHex||showHex ? (data.data | showHex) : (viewMode.showCtrlChar ? (data.data | showNR) : (data.data| addNewLine))">
+    [innerHTML]="viewMode.showHex||data.showHex ? (data.data | showHex) : (viewMode.showCtrlChar ? (data.data | showNR) : (data.data| addNewLine))">
   </div>
 </div>
 }@else{
@@ -15,9 +15,4 @@
   [ngClass]="{ 'tx': data.dir == 'TX', 'sys':data.dir == 'SYS', error: data.data.includes('error:'),'nowrap': !viewMode.autoWrap }"
   [innerHTML]="viewMode.showHex ? (data.data | showHex) : (viewMode.showCtrlChar ? (data.data | showNR) : (data.data | addNewLine))">
 </span>
-}
-
-@if (showMenu) {
-<app-menu [menuList]="rightMenu" [position]="position" [width]="125" (closeEvent)="closeMenu()"
-  (itemClickEvent)="menuClick($event)"></app-menu>
 }

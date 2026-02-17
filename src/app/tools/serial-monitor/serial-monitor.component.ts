@@ -18,6 +18,7 @@ import { MenuComponent } from '../../components/menu/menu.component';
 import { SerialMonitorService } from './serial-monitor.service';
 import { injectVirtualizer } from '@tanstack/angular-virtual';
 import { dataItem } from './serial-monitor.service';
+import { RIGHT_MENU } from './right-menu.config';
 import { HistoryMessageListComponent } from './components/history-message-list/history-message-list.component';
 import { QuickSendListComponent } from './components/quick-send-list/quick-send-list.component';
 import { BAUDRATE_LIST } from './config';
@@ -627,6 +628,66 @@ export class SerialMonitorComponent {
 
   onDataItemClick(item: dataItem) {
     console.log(item);
+  }
+
+  // 右键菜单相关
+  showContextMenu = false;
+  contextMenuPosition = { x: 0, y: 0 };
+  contextMenuItems = JSON.parse(JSON.stringify(RIGHT_MENU));
+  private contextMenuItem: dataItem | null = null;
+
+  onDataItemContextMenu(event: MouseEvent, item: dataItem) {
+    if (!this.serialMonitorService.viewMode.showTimestamp) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    // 先关闭已有菜单
+    this.showContextMenu = false;
+
+    this.contextMenuPosition = { x: event.clientX, y: event.clientY };
+    this.contextMenuItem = item;
+    this.serialMonitorService.viewMode.autoScroll = false;
+
+    // 根据当前 item 状态更新菜单标签
+    this.contextMenuItems = JSON.parse(JSON.stringify(RIGHT_MENU));
+    if (item.showHex) {
+      this.contextMenuItems[1].name = '文本显示';
+    }
+    if (item.highlight) {
+      this.contextMenuItems[2].name = '取消高亮';
+    }
+
+    // 延迟一帧确保旧菜单已销毁
+    setTimeout(() => {
+      this.showContextMenu = true;
+      this.cd.detectChanges();
+    });
+  }
+
+  closeContextMenu() {
+    this.showContextMenu = false;
+    this.contextMenuItem = null;
+    this.cd.detectChanges();
+  }
+
+  contextMenuClick(menuItem: any) {
+    if (!this.contextMenuItem) return;
+    switch (menuItem.data.action) {
+      case 'copy':
+        navigator.clipboard.writeText(this.contextMenuItem.data).then(() => {
+          this.message.info('已复制到剪贴板');
+        });
+        break;
+      case 'hex':
+        this.contextMenuItem.showHex = !this.contextMenuItem.showHex;
+        break;
+      case 'highlight':
+        this.contextMenuItem.highlight = !this.contextMenuItem.highlight;
+        break;
+    }
+    this.showContextMenu = false;
+    this.contextMenuItem = null;
+    this.cd.detectChanges();
   }
 
   showChartBox = false;
