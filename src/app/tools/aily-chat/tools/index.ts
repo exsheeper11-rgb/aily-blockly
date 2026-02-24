@@ -36,6 +36,7 @@ export { askApprovalTool } from './askApprovalTool';
 export { getContextTool } from './getContextTool';
 export { getProjectInfoTool } from './getProjectInfoTool';
 export { fetchTool, FetchToolService } from './fetchTool';
+export { webSearchTool, WebSearchToolService } from './webSearchTool';
 export { todoWriteTool } from './todoWriteTool';
 export { syncAbsFileHandler } from './syncAbsFileTool';
 export { absVersionControlHandler } from './absVersionControlTool';

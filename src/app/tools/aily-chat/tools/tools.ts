@@ -827,13 +827,14 @@ Query and return specific content (for detailed info)
     },
     {
         name: "fetch",
-        description: `获取网络上的信息和资源，支持HTTP/HTTPS请求，能够处理大文件下载。支持多种请求方法和响应类型。注意：非必要时请避免使用此工具，以减少外部依赖和网络请求。`,
+        description: `获取网页内容和API数据。支持HTTP/HTTPS请求。
+注意：非必要时请避免使用此工具。如需搜索信息请优先使用 web_search 工具。`,
         input_schema: {
             type: 'object',
             properties: {
                 url: {
                     type: 'string',
-                    description: '要请求的URL地址'
+                    description: '要请求的URL地址（仅支持 http:// 和 https://）'
                 },
                 method: {
                     type: 'string',
@@ -855,8 +856,8 @@ Query and return specific content (for detailed info)
                 },
                 maxSize: {
                     type: 'number',
-                    description: '最大文件大小（字节）',
-                    default: 52428800
+                    description: '最大文件大小（字节），默认5MB',
+                    default: 5242880
                 },
                 responseType: {
                     type: 'string',
@@ -866,6 +867,32 @@ Query and return specific content (for detailed info)
                 }
             },
             required: ['url']
+        }
+    },
+    {
+        name: "web_search",
+        description: `搜索网络以获取最新信息。使用 DuckDuckGo 搜索引擎，返回搜索结果列表（标题、摘要、链接）。
+适用场景：
+- 查找最新的技术文档、库版本信息、API 参考
+- 搜索错误信息的解决方案
+- 获取项目、产品、工具的最新状态
+- 查找教程、指南和示例代码
+- 在不知道确切 URL 时先搜索再用 fetch 获取详情
+注意：搜索结果仅包含标题和摘要，如需完整内容请使用 fetch 工具访问结果中的链接。`,
+        input_schema: {
+            type: 'object',
+            properties: {
+                query: {
+                    type: 'string',
+                    description: '搜索关键词，建议使用具体、有针对性的搜索词以获得更好的结果'
+                },
+                maxResults: {
+                    type: 'number',
+                    description: '返回的最大结果数量',
+                    default: 10
+                }
+            },
+            required: ['query']
         }
     },
     // {
