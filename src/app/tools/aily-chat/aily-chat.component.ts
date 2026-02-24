@@ -1305,6 +1305,9 @@ Do not create non-existent boards and libraries.
         return;
       }
       this.send("user", text, false);
+      // 按钮点击后滚动到底部
+      this.autoScrollEnabled = true;
+      this.scrollToBottom();
       return;
     }
 
