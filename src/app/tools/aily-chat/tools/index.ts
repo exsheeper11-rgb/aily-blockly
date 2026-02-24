@@ -37,7 +37,7 @@ export { getContextTool } from './getContextTool';
 export { getProjectInfoTool } from './getProjectInfoTool';
 export { fetchTool, FetchToolService } from './fetchTool';
 export { webSearchTool, WebSearchToolService } from './webSearchTool';
-export { todoWriteTool } from './todoWriteTool';
+export { todoWriteTool, injectTodoReminder } from './todoWriteTool';
 export { syncAbsFileHandler } from './syncAbsFileTool';
 export { absVersionControlHandler } from './absVersionControlTool';
 export { getAbsSyntaxTool } from './getAbsSyntaxTool';
