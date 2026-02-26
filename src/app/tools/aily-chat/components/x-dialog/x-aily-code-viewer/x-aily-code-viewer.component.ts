@@ -23,13 +23,11 @@ import { CommonModule } from '@angular/common';
         border: 1px solid #444;
       }
       pre code {
-        font-family: Consolas, 'Courier New', monospace;
         font-size: 12px;
         line-height: 1.4;
         color: #abb2bf;
       }
       code {
-        font-family: Consolas, 'Courier New', monospace;
         font-size: 12px;
         color: #ffbd08;
         padding: 1px 4px;
