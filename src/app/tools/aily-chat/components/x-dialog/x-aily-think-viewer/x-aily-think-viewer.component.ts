@@ -16,10 +16,11 @@ import { CommonModule } from '@angular/common';
   template: `
     <div class="ac-think" [class.expanded]="thinkExpanded">
       <div class="ac-think-header" (click)="thinkExpanded = !thinkExpanded">
-        <i
-          class="fa-light"
-          [class]="data?.isComplete ? 'fa-lightbulb' : 'fa-rotate ac-spin'"
-        ></i>
+        @if (data?.isComplete) {
+          <i class="fa-light fa-circle-check ac-think-icon done"></i>
+        } @else {
+          <i class="fa-duotone fa-solid fa-loader ac-think-icon loading ac-spin"></i>
+        }
         <span>{{ data?.isComplete ? 'Think' : 'Thinking...' }}</span>
         <i class="fa-light fa-chevron-down ac-think-arrow"></i>
       </div>
@@ -53,9 +54,9 @@ import { CommonModule } from '@angular/common';
         margin: -5px -10px;
         padding: 5px 10px;
       }
-      .ac-think-header i:first-child { flex-shrink: 0; }
-      .ac-think-header .loading { color: #1890ff; }
-      .ac-think-header .done { color: #52c41a; }
+      .ac-think-icon { flex-shrink: 0; }
+      .ac-think-icon.loading { color: #1890ff; }
+      .ac-think-icon.done { color: #52c41a; }
       .ac-think-arrow {
         margin-left: auto;
         font-size: 10px;
