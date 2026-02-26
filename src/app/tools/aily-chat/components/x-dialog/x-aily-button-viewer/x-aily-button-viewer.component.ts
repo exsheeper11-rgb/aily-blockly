@@ -36,7 +36,7 @@ interface ButtonData {
     }
   `,
   styles: [`
-    .ac-btns { display: flex; flex-wrap: wrap; gap: 5px; padding: 5px 0; }
+    .ac-btns { display: flex; flex-wrap: wrap; gap: 5px; padding: 2px 0; }
     .ac-btn {
       align-items: center;
       min-width: 80px; height: 32px; padding: 0 12px;
