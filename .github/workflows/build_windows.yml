@@ -1,20 +1,18 @@
 name: Build Aily Blockly Windows
 
-# 触发条件：允许我们在网页上手动点击按钮触发打包
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    # 告诉 GitHub：给我分配一台最新的 Windows 云电脑
     runs-on: windows-latest
 
     steps:
     - name: 1. 下载代码到云电脑
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: 2. 安装 Node.js 环境
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
         node-version: '20'
 
@@ -31,15 +29,16 @@ jobs:
       run: |
         xcopy /E /I /Y child\windows\* child\
         cd child
-        7z x node-v22*-win-x64.7z -o* ren node-v22*-win-x64 node
-        7z x aily-builder-*.7z -o*
+        7z x node-v22*-win-x64.7z
+        ren node-v22*-win-x64 node
+        7z x aily-builder-*.7z
         ren aily-builder-* aily-builder
 
-    - name: 6. 开始打包成 .exe 安装程序 (这一步可能需要几分钟)
+    - name: 6. 开始打包成 .exe 安装程序
       run: npm run build
 
     - name: 7. 将打包好的软件传回网页供你下载
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Aily-Blockly-Windows-App
         path: dist/aily-blockly/
